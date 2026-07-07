@@ -1,0 +1,50 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# === Virtual Environment ===
+.venv/
+venv/
+env/
+
+# === Environment & Secrets ===
+.env
+.env.local
+*.key
+
+# === IDE / Editor ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Logs & Outputs ===
+output/logs/
+output/demo/
+output/reports/
+*.log
+
+# === Testing ===
+.pytest_cache/
+.cache/
+.coverage
+htmlcov/
+coverage.xml
+.pytest_cache/
+
+# === Claude Code ===
+.claude/memory/
+.claude/settings.local.json
+
+# === Project ===
+config.local.yaml
