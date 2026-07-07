@@ -19,10 +19,11 @@
 5. [系统架构](#5-系统架构)
 6. [数据模型](#6-数据模型)
 7. [凭据与分发设计](#7-凭据与分发设计)
-8. [技术选型与理由](#8-技术选型与理由)
-9. [验收标准](#9-验收标准)
-10. [风险与未决问题](#10-风险与未决问题)
-11. [领域与机制设计](#11-领域与机制设计)
+8. [项目范围](#8-项目范围)
+9. [技术选型与理由](#9-技术选型与理由)
+10. [验收标准](#10-验收标准)
+11. [风险与未决问题](#11-风险与未决问题)
+12. [领域与机制设计](#12-领域与机制设计)
 
 ---
 
@@ -56,7 +57,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 
 以下用户故事遵循 INVEST 原则（Independent, Negotiable, Valuable, Estimable, Small, Testable）。
 
-### US-01：运行代码生成任务
+### US-01：运行代码生成任务（P0）
 
 > 作为一名开发者，我希望通过命令行启动 Harness，传入一个编码任务描述，让 Harness 自动完成代码编写，以便节省手动编码时间。
 
@@ -64,7 +65,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - 执行 `tdd-harness run "编写一个计算斐波那契数列的函数"` 后，Harness 生成对应的代码文件
 - 生成的代码语法正确、可运行
 
-### US-02：自动修复测试失败
+### US-02：自动修复测试失败（P0）
 
 > 作为一名开发者，我希望 Harness 在运行测试后发现失败时，能自动分析失败原因并尝试修复代码，而不是在第一次失败后就停止。
 
@@ -72,7 +73,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - 给定一个有 bug 的代码 + 对应的测试文件，Harness 运行测试 → 检测失败 → 分析失败类型 → 生成修复 → 重新测试
 - 修复过程最多重试 N 次（可配置），达到上限后停止并报告
 
-### US-03：拦截危险命令
+### US-03：拦截危险命令（P1）
 
 > 作为一名开发者，我希望 Harness 在执行危险 Shell 命令（如 `rm -rf /`、`DROP TABLE`）前暂停并请求我确认，以避免意外破坏。
 
@@ -80,7 +81,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - Guardrail 模块识别到危险命令模式时，拦截执行并输出提示信息
 - 在 Mock LLM 模式下，可通过确定性测试验证拦截行为
 
-### US-04：查看 Harness 运行日志
+### US-04：查看 Harness 运行日志（P1）
 
 > 作为一名开发者，我希望 Harness 记录每次运行的完整日志（LLM 调用、工具执行、反馈结果），以便在出错时回溯排查。
 
@@ -88,7 +89,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - 每次运行在 `output/logs/` 下生成时间戳命名的日志文件
 - 日志包含：LLM 请求/响应、工具调用与结果、Guardrail 拦截记录、Feedback 分类结果
 
-### US-05：切换 LLM 供应商
+### US-05：切换 LLM 供应商（P2）
 
 > 作为一名开发者，我希望通过修改配置文件切换 LLM 供应商（如从 OpenAI 切换到 Mock），而不需要修改代码。
 
@@ -96,7 +97,7 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - `config.yaml` 中修改 `provider` 字段即可切换
 - Mock Provider 在无网络环境下返回预设响应，用于测试
 
-### US-06：使用反馈引擎调试 AssertionError
+### US-06：使用反馈引擎调试 AssertionError（P1）
 
 > 作为一名开发者，我希望 Harness 遇到 AssertionError 时能提取具体的断言表达式和预期/实际值，生成有针对性的修复提示，而不是泛泛地重试。
 
@@ -193,6 +194,67 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
     - iterations: int
 ```
 
+**主循环状态图：**
+
+```
+                      ┌─────────────┐
+                      │   Start     │
+                      └──────┬──────┘
+                             │
+                             ▼
+                      ┌─────────────┐
+                      │ Load Config │
+                      └──────┬──────┘
+                             │
+                             ▼
+                      ┌─────────────┐
+                      │Build Context│
+                      │(系统提示+记忆) │
+                      └──────┬──────┘
+                             │
+                             ▼
+                      ┌─────────────┐
+                      │LLM Generate │
+                      └──────┬──────┘
+                             │
+                             ▼
+                     ┌──────────────┐
+                     │Has ToolCall? │
+                     └──┬───────┬───┘
+                        │       │
+                       No      Yes
+                        │       │
+                        ▼       ▼
+                 ┌────────┐ ┌──────────────┐
+                 │ Finish │ │  Guardrail   │
+                 │(停机判断) │ │   检查       │
+                 └───┬────┘ └──────┬───────┘
+                     │             │
+                     │             ▼
+                     │      ┌──────────────┐
+                     │      │ Execute Tool │
+                     │      └──────┬───────┘
+                     │             │
+                     │             ▼
+                     │      ┌──────────────┐
+                     │      │  Feedback    │
+                     │      │  Engine      │
+                     │      └──────┬───────┘
+                     │             │
+                     │             ▼
+                     │      ┌──────────────┐
+                     │      │  Continue?   │
+                     │      └──┬───────┬───┘
+                     │         │       │
+                     │        Yes      No
+                     │         │       │
+                     └─────────┘       │
+                                       ▼
+                                  ┌────────┐
+                                  │  Stop  │
+                                  └────────┘
+```
+
 **停机条件：**
 - 测试全部通过 → 成功
 - 达到最大迭代次数（默认 5）→ 失败
@@ -225,6 +287,22 @@ class ToolDispatcher:
 ```
 
 ### 3.4 工具定义（`src/tools/`）
+
+#### 3.4.0 `BaseTool` 统一接口
+
+所有工具继承自同一抽象基类：
+
+```python
+class BaseTool(ABC):
+    name: str
+    description: str
+
+    @abstractmethod
+    def execute(self, arguments: dict) -> ToolResult:
+        ...
+```
+
+ToolDispatcher 通过 `BaseTool.execute()` 统一调用，无需为每个工具写分支逻辑。
 
 #### 3.4.1 `ReadFile`
 
@@ -277,6 +355,20 @@ class ToolDispatcher:
 ### 3.5 反馈引擎（`src/feedback/`）—— 主要贡献
 
 #### 3.5.1 `FeedbackEngine`
+
+**接口定义：**
+
+```python
+class FeedbackEngine:
+    def analyze(
+        self,
+        tool_result: ToolResult,
+        context: Context,
+    ) -> Feedback:
+        ...
+```
+
+**流程：**
 
 ```
 输入：
@@ -403,6 +495,7 @@ class FailureType(Enum):
   - 可通过 CLI 参数 --config 覆盖
 
 内容：
+  version: 1                     # 配置版本号，用于向后兼容
   provider:
     name: mock | openai | claude
     model: str
@@ -534,6 +627,15 @@ User → CLI → Main Loop
 | pytest | 作为外部工具被调用 | 用户项目依赖 |
 | ruff / mypy | 作为反馈源扩展 | 可选（扩展范围） |
 
+### 5.4 设计原则
+
+| 原则 | 本项目的体现 |
+|------|-------------|
+| **Provider 模式** | LLM 供应商标配抽象接口，Mock/OpenAI/Claude 可互换 |
+| **依赖注入** | ToolDispatcher、Guardrail、Memory 通过构造注入到 Main Loop |
+| **单一职责** | 每个模块只负责一件事：Loop 管流程，Analyzer 管分类，Guardrail 管拦截 |
+| **可测试性优先** | 所有核心模块可脱离真实 LLM 独立测试（MockProvider + 构造输入） |
+
 ---
 
 ## 6. 数据模型
@@ -612,6 +714,12 @@ class Memory(BaseModel):
     conventions: List[str] = []
 
 # === 运行层 ===
+class Context(BaseModel):
+    messages: List[Message] = []
+    memory: Memory | None = None
+    iteration: int = 0
+    task: str = ""
+
 class RunResult(BaseModel):
     success: bool
     artifacts: List[str] = []
@@ -665,7 +773,40 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 
 ---
 
-## 8. 技术选型与理由
+## 8. 项目范围
+
+### 8.1 In Scope（MVP）
+
+| 模块 | 说明 |
+|------|------|
+| Python 3.12 项目 | 使用 Python 3.12 实现全部核心逻辑 |
+| LLM Provider 抽象层 | 支持 MockProvider + OpenAIProvider，预留 ClaudeProvider |
+| Main Loop | 组织上下文 → 调用 LLM → 解析 → 分发 → 回灌 → 停机判断 |
+| 工具集 | ReadFile、WriteFile、RunShell |
+| Feedback Engine | Collector + FailureAnalyzer + 修复策略选择器 |
+| Guardrail | 危险命令模式匹配 + HITL 确认 |
+| Memory | JSON 文件持久化（不做向量检索/RAG） |
+| Config | YAML 配置加载 |
+| CLI | typer 命令行入口 |
+| 单元测试 | 所有核心机制使用 Mock LLM 的确定性测试 |
+| Docker 分发 | Dockerfile + docker build/run |
+
+### 8.2 Out of Scope（明确不包含）
+
+| 模块 | 不包含的理由 |
+|------|-------------|
+| GUI / Web UI | 项目定位为 CLI 工具，Out of Scope |
+| IDE Plugin（VS Code 等） | 超过课程项目范围 |
+| Multi-Agent 编排 | A 类要求的是单 Agent Harness |
+| RAG / 向量数据库 | Memory 的最小实现无需检索增强 |
+| LangGraph / CrewAI / AutoGen 等 Agent 框架 | A 类要求自行实现 Harness，不得寄生于框架高层循环 |
+| 并行任务执行 | MVP 聚焦单线程主循环 |
+| 分布式部署 | 单机工具无需分布 |
+| 非 Python 语言项目支持 | MVP 默认 pytest，其他语言依赖用户配置 |
+
+---
+
+## 9. 技术选型与理由
 
 | 选型 | 选择 | 理由 |
 |------|------|------|
@@ -680,7 +821,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 
 ---
 
-## 9. 验收标准
+## 10. 验收标准
 
 ### 9.1 功能验收
 
@@ -713,7 +854,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 
 ---
 
-## 10. 风险与未决问题
+## 11. 风险与未决问题
 
 ### 10.1 已识别的风险
 
@@ -732,11 +873,11 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 
 ---
 
-## 11. 领域与机制设计
+## 12. 领域与机制设计
 
-### 11.1 领域分析：Coding Agent 的四个核心机制
+### 12.1 领域分析：Coding Agent 的四个核心机制
 
-#### 11.1.1 动作/工具
+#### 12.1.1 动作/工具
 
 **领域需求：** 编码 Agent 需要能够读写代码文件、执行构建与测试命令。
 
@@ -746,7 +887,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 - 每个工具（ReadFile, WriteFile, RunShell）是独立类，可单独单元测试
 - 工具注册通过 `dispatcher.register("read_file", ReadFile())` 完成
 
-#### 11.1.2 客观反馈信号
+#### 12.1.2 客观反馈信号
 
 **领域需求：** 编码 Agent 需要知道代码是否正确。最客观的信号是运行测试/检查工具的输出。
 
@@ -757,7 +898,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 - 不同类型触发不同的修复策略，生成不同的 repair_prompt
 - 移除 LLM 后，FeedbackEngine 的所有分类逻辑仍可独立测试
 
-#### 11.1.3 危险动作
+#### 12.1.3 危险动作
 
 **领域需求：** 编码 Agent 可能执行破坏性命令（删除文件、格式化磁盘、修改系统配置）。
 
@@ -768,7 +909,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 - 可配置 `block_list` 扩展危险模式
 - 移除 LLM 后，传入构造的 Action 即可测试拦截逻辑
 
-#### 11.1.4 记忆
+#### 12.1.4 记忆
 
 **领域需求：** 跨会话保持项目上下文、历史决策、技术栈约定。
 
@@ -779,7 +920,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 - 大小超限时自动截断（保留最近 N 条）
 - 移除 LLM 后，读写 JSON 文件的逻辑可独立测试
 
-### 11.2 重点维度论证：反馈引擎
+### 12.2 重点维度论证：反馈引擎
 
 选择 Feedback Engine 作为主要贡献，理由如下：
 
@@ -789,7 +930,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 4. **可扩展性**：新的失败类型只需添加新的分类规则和修复策略，符合开闭原则。
 5. **工程深度足够**：从简单的"把测试结果发给 LLM"提升为"结构化分析 + 差异化的修复策略"，体现了工程思维。
 
-### 11.3 机制可测试性对照表
+### 12.3 机制可测试性对照表
 
 | 机制 | 测试方式 | 需要 LLM？ |
 |------|---------|-----------|
