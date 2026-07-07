@@ -66,7 +66,9 @@ src/
 │   ├── __init__.py
 │   ├── models.py       # 数据模型（T2）
 │   ├── config.py       # 配置加载（T2）
-│   ├── loop.py         # 主循环（T11, T12, T13, T18）
+│   ├── loop.py         # 主循环（T11）
+│   ├── context.py      # 上下文管理（T12）
+│   ├── stop_condition.py # 停机条件（T13）
 │   ├── guardrail.py    # 治理护栏（T10）
 │   └── memory.py       # 记忆（T14）
 ├── providers/
@@ -77,7 +79,8 @@ src/
 │   └── openai_compat.py # OpenAICompatibleProvider（T5）
 ├── tools/
 │   ├── __init__.py
-│   ├── base.py         # BaseTool + Dispatcher（T6）
+│   ├── base.py         # BaseTool 抽象类（T6）
+│   ├── dispatcher.py   # ToolDispatcher（T6）
 │   ├── read_file.py    # ReadFile（T7）
 │   ├── write_file.py   # WriteFile（T8）
 │   └── run_shell.py    # RunShell（T9）
@@ -86,14 +89,19 @@ src/
 │   ├── models.py       # 反馈数据模型（T15）
 │   ├── analyzer.py     # Collector + FailureAnalyzer（T16）
 │   └── engine.py       # 反馈引擎 + 策略（T17）
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    ├── test_models.py, test_config.py
-    ├── test_providers.py, test_tools.py, test_dispatcher.py
-    ├── test_guardrail.py, test_memory.py, test_loop.py
-    ├── test_feedback_models.py, test_analyzer.py, test_feedback_engine.py
-    ├── test_cli.py, test_loop_integration.py
+├── tests/
+│   ├── __init__.py, conftest.py
+│   ├── test_models.py, test_config.py
+│   ├── test_providers.py, test_tools.py, test_dispatcher.py
+│   ├── test_guardrail.py, test_memory.py, test_context.py
+│   ├── test_stop_condition.py, test_loop.py
+│   ├── test_feedback_models.py, test_analyzer.py, test_feedback_engine.py
+│   ├── test_cli.py, test_loop_integration.py
+│   └── ...
+└── examples/
+    ├── guardrail_demo.py   # Guardrail 机制演示（T19）
+    ├── feedback_demo.py    # Feedback 机制演示（T19）
+    └── full_cycle_demo.py  # 完整周期演示（T19）
 ```
 
 ---
@@ -117,7 +125,7 @@ Phase 3: Tools      │
 Phase 4: Core
   T10 (Guardrail) ──→ T11 (Loop Framework)
          │              │
-         │              ├──→ T12 (Context Management)
+         │              ├──→ T12 (Context)
          │              │
          │              ├──→ T13 (Stop Conditions)
          │              │
@@ -304,7 +312,7 @@ provider:
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §3.3 + §3.4.0，建立工具分发机制 |
-| **涉及文件** | `src/tools/base.py`, `src/harness/dispatcher.py`, `src/tests/test_dispatcher.py` |
+| **涉及文件** | `src/tools/base.py`, `src/tools/dispatcher.py`, `src/tests/test_dispatcher.py` |
 | **实现要点** | ① `BaseTool(ABC)` 定义 `execute(arguments: dict) → ToolResult` ② `ToolDispatcher` 维护 `name→tool` 映射 ③ `register(name, tool)` 和 `dispatch(tool_call)` 方法 ④ 未注册的工具返回错误结果 |
 
 **测试（先红后绿）：**
@@ -384,7 +392,7 @@ provider:
 |------|------|
 | **目标** | 实现 SPEC §3.6，治理护栏 |
 | **涉及文件** | `src/harness/guardrail.py`, `src/tests/test_guardrail.py` |
-| **实现要点** | ① `check(action) → GuardrailResult` ② 危险命令模式匹配（SPEC 列出的所有模式）③ 模式可配置（`block_list`）④ 安全命令直接放行 ⑤ HITL 确认预留接口（Mock 模式自动拒绝） |
+| **实现要点** | ① `check_tool_call(tool_call: ToolCall) → GuardrailResult` ② 提取命令参数（RunShell 的 command 字段）与危险模式匹配 ③ 模式可配置（`block_list`）④ 安全命令直接放行 ⑤ HITL 确认预留接口（Mock 模式自动拒绝） |
 
 **测试（先红后绿）：**
 - `test_guardrail_blocks_rm_rf`：`rm -rf /` → 拦截
@@ -403,9 +411,9 @@ provider:
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §3.2 的主循环骨架 |
-| **涉及文件** | `src/harness/loop.py`, `src/tests/test_loop.py` |
-| **设计原则：** 依赖注入。Loop 不负责创建 Provider、Dispatcher、Guardrail、Memory、FeedbackEngine，全部由外部注入 |
-| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：初始化 Context → 调用 LLM → 解析 ToolCall → Guardrail 检查 → 分发工具 → 收集结果 → 回灌 → 循环 ③ 构造注入所有依赖 ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
+| **涉及文件** | `src/harness/loop.py`, `src/harness/context.py`, `src/harness/stop_condition.py`, `src/tests/test_loop.py` |
+| **设计原则：** 依赖注入。Loop 不负责创建 Provider、Dispatcher、Guardrail、Memory、FeedbackEngine、StopCondition，全部由外部注入 |
+| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：初始化 Context → 调用 LLM → 解析 ToolCall → Guardrail 检查 → 分发工具 → 收集结果 → 回灌 → 循环 ③ 构造注入所有依赖 ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 ⑤ 停机判断委托给 `StopCondition.should_stop()` |
 
 **测试（先红后绿）：**
 - `test_loop_with_mock_finish`：MockProvider 返回 Finish → 成功停机
@@ -417,13 +425,13 @@ provider:
 
 ---
 
-### T12：Context 管理（SP1）
+### T12：Context 管理（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 Context 的构建、更新、回灌逻辑 |
-| **涉及文件** | `src/harness/loop.py`（Context 方法）, `src/tests/test_loop.py` |
-| **实现要点** | ① 系统提示词构建（含任务描述、工具定义）② 每次 LLM 响应后追加到 messages ③ 工具执行结果回灌（tool result → message）④ Feedback 回灌（追加到下一轮 LLM 调用） |
+| **目标** | 实现 Context 的构建、更新、回灌逻辑，独立为 `ContextManager` 类 |
+| **涉及文件** | `src/harness/context.py`, `src/tests/test_context.py` |
+| **实现要点** | ① `ContextManager` 类负责系统提示词构建（含任务描述、工具定义）② 每次 LLM 响应后追加到 messages ③ 工具执行结果回灌（tool result → message）④ Feedback 回灌（追加到下一轮 LLM 调用）⑤ Loop 调用 `context_manager.build()` 和 `context_manager.append()` 而非自行管理 |
 
 **测试（先红后绿）：**
 - `test_context_build_system_prompt`：包含任务描述 + 工具定义
@@ -435,19 +443,19 @@ provider:
 
 ---
 
-### T13：停机条件（SP1）
+### T13：停机条件（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.2 中定义的四种停机条件 |
-| **涉及文件** | `src/harness/loop.py`, `src/tests/test_loop.py` |
-| **实现要点** | ① 测试全部通过 → 成功 ② 达到最大迭代次数（默认 5）→ 失败 ③ LLM 返回 Finish 工具调用 → 按结果判定 ④ Guardrail 拦截致命动作且用户拒绝 → 失败 |
+| **目标** | 实现 SPEC §3.2 中定义的四种停机条件，独立为 `StopCondition` 类 |
+| **涉及文件** | `src/harness/stop_condition.py`, `src/tests/test_stop_condition.py` |
+| **实现要点** | ① `StopCondition` 类判断四种停机条件：测试全部通过 / 达到最大迭代次数 / LLM 返回 Finish / Guardrail 拦截致命动作 ② `should_stop(context) → (bool, reason)` ③ StopCondition 由外部注入到 Loop ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
 
 **测试（先红后绿）：**
-- `test_loop_max_iterations`：持续返回工具调用 → 达到上限后停机
-- `test_loop_guardrail_blocks`：MockProvider 返回危险命令 → Guardrail 拦截 → 停机
-- `test_loop_finish_success`：Finish 且测试通过 → 成功
-- `test_loop_finish_failure`：Finish 但测试失败 → 失败
+- `test_stop_condition_max_iterations`：持续返回工具调用 → 达到上限后停机
+- `test_stop_condition_guardrail_blocks`：Guardrail 拦截 → 停机
+- `test_stop_condition_finish_success`：Finish 且测试通过 → 成功
+- `test_stop_condition_finish_failure`：Finish 但测试失败 → 失败
 
 **DoD：**
 - ✅ 四种停机条件全部覆盖
@@ -497,13 +505,15 @@ provider:
 
 ---
 
-### T16：Collector + FailureAnalyzer（SP2）
+### T16：Collector + FailureAnalyzer（SP3）
 
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §3.5.1（Collector）+ §3.5.3（Analyzer），收集原始输出并分类失败类型 |
 | **涉及文件** | `src/feedback/analyzer.py`, `src/tests/test_analyzer.py` |
-| **实现要点** | ① **Collector**：从 ToolResult 提取 stdout/stderr/exit_code，去除 ANSI 转义序列，提取关键行 ② **Analyzer**：正则/模式匹配解析 pytest 输出 ③ 区分 SYNTAX_ERROR / IMPORT_ERROR / ASSERTION_ERROR / TIMEOUT / RUNTIME_ERROR / TEST_FAILURE / UNKNOWN ④ AssertionError 提取预期值和实际值 ⑤ 提取失败位置（文件:行号） |
+| **实现要点** | ① **`Collector` 类**：从 ToolResult 提取 stdout/stderr/exit_code，去除 ANSI 转义序列，提取关键行（失败测试名称、错误行号）② **`FailureAnalyzer` 类**：接收 Collector 处理后的输出，通过正则/模式匹配解析 pytest 输出 ③ 区分 SYNTAX_ERROR / IMPORT_ERROR / ASSERTION_ERROR / TIMEOUT / RUNTIME_ERROR / TEST_FAILURE / UNKNOWN ④ AssertionError 提取预期值和实际值 ⑤ 提取失败位置（文件:行号）|
+
+**代码结构：** `Collector` 和 `FailureAnalyzer` 是独立的两个类，职责分离。即使它们在一个 Task 中实现，代码不合并。
 
 **风险：** Windows 与 Linux 的 pytest 输出格式可能略有差异，测试时需覆盖两种格式
 
@@ -583,7 +593,7 @@ provider:
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §9.3，三个可在 Mock LLM 下确定性复现的机制演示 |
-| **涉及文件** | `output/demo/guardrail_demo.py`, `output/demo/feedback_demo.py`, `output/demo/full_cycle_demo.py` |
+| **涉及文件** | `examples/guardrail_demo.py`, `examples/feedback_demo.py`, `examples/full_cycle_demo.py` |
 | **实现要点** | ① Guardrail 演示：构造危险命令 → 拦截 → 输出结果 ② Feedback 演示：注入测试输出 → Analyzer 分类 → 生成修复 Prompt ③ 完整周期：Mock 驱动"写代码→测试→修复→通过"流程 |
 
 **DoD：**
@@ -600,9 +610,14 @@ provider:
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 完成 README，包含所有必需章节（初版已在 T1 创建，开发过程中持续更新） |
+| **目标** | 完成 README，包含所有必需章节（**初版已在 T1 创建**：Install + Quick Start；开发过程中持续更新；T20 补全其余章节） |
 | **涉及文件** | `README.md` |
-| **实现要点** | ① 项目简介 ② 安装步骤（pip install / docker）③ 运行命令 ④ 分发命令 ⑤ 目录结构 ⑥ 安全边界说明（Key 配置方式）⑦ 已知限制 |
+| **实现要点** | ① 项目简介 + 安装步骤（pip install / docker）② 运行命令 + 分发命令 ③ 完整目录结构 ④ **安全边界说明（Key 配置方式）** ⑤ Architecture + Configuration + Demo + Known Issues 章节 |
+
+**两阶段策略：**
+- T1：创建 `README.md` 初版（项目简介、Install、Quick Start、CI badge）
+- 每完成一个 Phase，追加对应章节
+- T20：补全 Architecture、Examples、Configuration、Demo、Known Issues、安全边界
 
 **DoD：**
 - ✅ 包含全部必需章节
@@ -640,17 +655,17 @@ provider:
 | T9 | RunShell | 1 | Phase 3 |
 | T10 | Guardrail | 1 | Phase 4 |
 | T11 | Main Loop 框架（依赖注入） | 2 | Phase 4 |
-| T12 | Context 管理 | 1 | Phase 4 |
-| T13 | 停机条件（含 Finish 虚拟工具） | 1 | Phase 4 |
+| T12 | Context 管理 | 2 | Phase 4 |
+| T13 | 停机条件（StopCondition 独立类） | 2 | Phase 4 |
 | T14 | Memory | 1 | Phase 4 |
 | T15 | Feedback 数据模型 | 1 | Phase 5 ⭐ |
-| T16 | Collector + FailureAnalyzer | 2 | Phase 5 ⭐ |
+| T16 | Collector + FailureAnalyzer | 3 | Phase 5 ⭐ |
 | T17 | FeedbackEngine + 策略 | 2 | Phase 5 ⭐ |
 | T18 | 集成 Feedback → Loop | 3 | Phase 6 |
-| T19 | 机制演示脚本 | 2 | Phase 6 |
-| T20 | README 完善 | 1 | Phase 7 |
+| T19 | 机制演示脚本（examples/） | 2 | Phase 6 |
+| T20 | README 完善（两阶段策略） | 1 | Phase 7 |
 | T21 | AGENT_LOG + 最终验证 | 1 | Phase 7 |
-| | **合计** | **29 SP** | |
+| | **合计** | **31 SP** | |
 
 ---
 
