@@ -4,9 +4,56 @@
 >
 > **对应 SPEC：** `docs/SPEC.md` v1.0
 >
-> **总任务数：** 22
+> **总任务数：** 21
 >
-> **Story Point 说明：** SP1=简单（~15min），SP2=中等（~30min），SP3=较复杂（~1h），SP5=复杂（~2h）
+> **Story Point 说明：** SP1=简单（~15min），SP2=中等（~30min），SP3=较复杂（~1h）
+
+---
+
+## 系统架构图
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                         CLI (typer)                            │
+│  tdd-harness run "task" --provider mock --model gpt-4o        │
+└─────────────────────────┬─────────────────────────────────────┘
+                          │
+                          ▼
+┌───────────────────────────────────────────────────────────────┐
+│                         Config                                 │
+│  CLI 参数 > config.yaml > 默认值                               │
+│  ProviderFactory.create(config) → Provider 实例                │
+└─────────────────────────┬─────────────────────────────────────┘
+                          │
+                          ▼
+┌───────────────────────────────────────────────────────────────┐
+│                      Harness Main Loop                         │
+│                                                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
+│  │  Build   │  │  Call    │  │Guardrail │  │  Dispatch    │  │
+│  │ Context  │→│ Provider │→│  Check   │→│  Tool        │  │
+│  └──────────┘  └──────────┘  └──────────┘  └──────┬───────┘  │
+│                                                    │          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐         │          │
+│  │  Stop    │←│  Feedback│←│  Collect │←─────────┘          │
+│  │ Decision │  │  Engine  │  │  Result  │                    │
+│  └──────────┘  └──────────┘  └──────────┘                    │
+│       │                                                       │
+│       ▼                                                       │
+│  ┌──────────┐                                                │
+│  │  Memory  │  (Context 持久化)                               │
+│  └──────────┘                                                │
+└───────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+    ┌──────────────────────────────────────────────────┐
+    │               Feedback Engine                     │
+    │  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
+    │  │Collector │→│ Analyzer │→│ Repair Strategy │  │
+    │  │(原始输出)  │  │(失败分类)  │  │(差异化 Prompt)  │  │
+    │  └──────────┘  └──────────┘  └────────────────┘  │
+    └──────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -21,10 +68,11 @@ src/
 │   ├── config.py       # 配置加载（T2）
 │   ├── loop.py         # 主循环（T11, T12, T13, T18）
 │   ├── guardrail.py    # 治理护栏（T10）
-│   └── memory.py       # 记忆（T19）
+│   └── memory.py       # 记忆（T14）
 ├── providers/
 │   ├── __init__.py
 │   ├── base.py         # LLMProvider 抽象基类（T4）
+│   ├── factory.py      # ProviderFactory（T4）
 │   ├── mock.py         # MockProvider（T4）
 │   └── openai_compat.py # OpenAICompatibleProvider（T5）
 ├── tools/
@@ -35,27 +83,17 @@ src/
 │   └── run_shell.py    # RunShell（T9）
 ├── feedback/
 │   ├── __init__.py
-│   ├── models.py       # 反馈数据模型（T14）
-│   ├── collector.py    # 原始输出收集（T15）
-│   ├── analyzer.py     # 失败分类（T16）
+│   ├── models.py       # 反馈数据模型（T15）
+│   ├── analyzer.py     # Collector + FailureAnalyzer（T16）
 │   └── engine.py       # 反馈引擎 + 策略（T17）
 └── tests/
     ├── __init__.py
     ├── conftest.py
-    ├── test_models.py
-    ├── test_config.py
-    ├── test_providers.py
-    ├── test_tools.py
-    ├── test_dispatcher.py
-    ├── test_guardrail.py
-    ├── test_memory.py
-    ├── test_loop.py
-    ├── test_feedback_models.py
-    ├── test_collector.py
-    ├── test_analyzer.py
-    ├── test_feedback_engine.py
-    ├── test_cli.py
-    └── test_loop_integration.py
+    ├── test_models.py, test_config.py
+    ├── test_providers.py, test_tools.py, test_dispatcher.py
+    ├── test_guardrail.py, test_memory.py, test_loop.py
+    ├── test_feedback_models.py, test_analyzer.py, test_feedback_engine.py
+    ├── test_cli.py, test_loop_integration.py
 ```
 
 ---
@@ -66,9 +104,8 @@ src/
 Phase 1: Foundation
   T1 ──→ T2
          │
-Phase 2: CLI + Provider
-         │
-  T3 (CLI)    T4 (LLM 抽象 + Mock)
+Phase 2: CLI + Provider         │
+  T3 (CLI)    T4 (LLM 抽象 + Mock + Factory)
          │      │
          └──────┘──→ T5 (OpenAICompatible)
                     │
@@ -82,16 +119,18 @@ Phase 4: Core
          │              │
          │              ├──→ T12 (Context Management)
          │              │
-         │              └──→ T13 (Stop Conditions)
+         │              ├──→ T13 (Stop Conditions)
+         │              │
+         │              └──→ T14 (Memory)
          │
 Phase 5: Feedback ⭐
-  T14 (Models) ──→ T15 (Collector) ──→ T16 (Analyzer) ──→ T17 (Engine + Strategies)
+  T15 (Models) ──→ T16 (Collector + Analyzer) ──→ T17 (Engine + Strategies)
          │
 Phase 6: Integration
-  T18 (Feedback → Loop) ──→ T19 (Memory) ──→ T20 (Demo)
+  T18 (Feedback → Loop) ──→ T19 (Demo Scripts)
          │
 Phase 7: Delivery
-  T21 (README) ──→ T22 (AGENT_LOG + Final)
+  T20 (README Final) ──→ T21 (AGENT_LOG + Final Verify)
 ```
 
 ---
@@ -123,6 +162,23 @@ Phase 7: Delivery
 
 ---
 
+## 项目边界（Out of Scope）
+
+以下功能明确不包含在 MVP 中：
+
+| 功能 | 理由 |
+|------|------|
+| 多 Agent 协作 | A 类要求的是单 Agent Harness |
+| GUI / Web UI | 项目定位为 CLI 工具 |
+| IDE 插件（VS Code 等） | 超过课程项目范围 |
+| RAG / 向量数据库 | Memory 最小实现无需检索增强 |
+| LangGraph / CrewAI / AutoGen | A 类要求自行实现 Harness 内核 |
+| 远程 Sandbox | 单机工具无需远程执行 |
+| 流式 Tool Calling | 增加复杂度，MVP 不做 |
+| 并行任务执行 | 单线程主循环，MVP 不做 |
+
+---
+
 ## Phase 1：Foundation（2 个 Task）
 
 **Milestone：** 项目可安装、可导入、配置可加载、Docker 可构建、CI 自动运行测试
@@ -133,7 +189,7 @@ Phase 7: Delivery
 |------|------|
 | **目标** | 建立项目基础结构，确保可安装、可构建 |
 | **涉及文件** | `pyproject.toml`, `.gitignore`, `Dockerfile`, `.dockerignore`, `.gitlab-ci.yml`, `src/__init__.py`, `src/harness/__init__.py`, `src/tools/__init__.py`, `src/providers/__init__.py`, `src/feedback/__init__.py`, `src/tests/__init__.py`, `README.md`（初版） |
-| **实现要点** | ① pyproject.toml 定义项目元数据、依赖（pydantic, typer, pyyaml, openai, python-dotenv）、`[project.scripts]` 入口 ② 创建所有 `__init__.py` ③ Dockerfile 基于 `python:3.12-slim`，安装依赖 + 复制源码 ④ `.gitlab-ci.yml` 包含 `unit-test` job（pytest 一键运行）⑤ README 初版写项目简介和快速开始 |
+| **实现要点** | ① pyproject.toml 定义项目元数据、依赖（pydantic, typer, pyyaml, openai, python-dotenv）、`[project.scripts]` 入口 ② 创建所有 `__init__.py` ③ Dockerfile 基于 `python:3.12-slim` ④ `.gitlab-ci.yml` 包含 `unit-test` job（pytest 一键运行）⑤ README 初版写项目简介和快速开始 |
 
 **DoD：**
 - `pytest --version` 可运行
@@ -165,7 +221,7 @@ Phase 7: Delivery
 
 ## Phase 2：CLI + Provider（3 个 Task）
 
-**Milestone：** 可通过 CLI 运行 Harness（Mock 模式），可在不同 Provider 间切换
+**Milestone：** 可通过 CLI 运行 Harness（Mock 模式），可在不同 Provider/模型间切换
 
 ### T3：CLI 入口（SP2）
 
@@ -185,22 +241,24 @@ Phase 7: Delivery
 
 ---
 
-### T4：LLMProvider 抽象基类 + MockProvider（SP2）
+### T4：LLMProvider 抽象基类 + MockProvider + ProviderFactory（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.1.1 + §3.1.2，建立 LLM 抽象层 |
-| **涉及文件** | `src/providers/base.py`, `src/providers/mock.py`, `src/tests/test_providers.py` |
-| **实现要点** | ① `LLMProvider` 抽象基类（ABC），定义 `generate(messages, tools, config) → LLMResponse` ② `MockProvider` 持有 `preset_responses: Dict[str, LLMResponse]`，按输入消息匹配 ③ 不匹配时返回默认响应 ④ 错误边界：超时、认证异常 |
+| **目标** | 实现 SPEC §3.1.1 + §3.1.2，建立 LLM 抽象层和工厂 |
+| **涉及文件** | `src/providers/base.py`, `src/providers/mock.py`, `src/providers/factory.py`, `src/tests/test_providers.py` |
+| **实现要点** | ① `LLMProvider` 抽象基类（ABC），定义 `generate(messages, tools, config) → LLMResponse` ② `MockProvider` 持有 `preset_responses: Dict[str, LLMResponse]`，按输入消息匹配 ③ 不匹配时返回默认响应 ④ **`ProviderFactory.create(config) → LLMProvider`**：根据 `config.provider.name` 创建对应实例（mock → MockProvider, openai → OpenAICompatibleProvider），新增 Provider 只需在 Factory 中注册 ⑤ 错误边界：超时、认证异常 |
 
 **测试（先红后绿）：**
 - `test_mock_provider_returns_preset`：输入特定消息 → 返回预设响应
 - `test_mock_provider_default`：未预设消息 → 返回默认响应
 - `test_mock_provider_tool_call`：Mock 返回包含 ToolCall 的响应
+- `test_factory_creates_mock`：`name=mock` → 返回 MockProvider 实例
+- `test_factory_creates_openai`：`name=openai` → 返回 OpenAICompatibleProvider 实例
 
 **DoD：**
 - ✅ 测试通过
-- ✅ 可通过 `--provider mock` 调用
+- ✅ Factory 可创建全部 Provider 类型
 
 ---
 
@@ -212,6 +270,20 @@ Phase 7: Delivery
 | **涉及文件** | `src/providers/openai_compat.py`, `src/tests/test_providers.py` |
 | **实现要点** | ① 调用 OpenAI Chat Completions API（兼容接口）② 支持 tool calling（function calling）③ 配置从 `LLMConfig` 读取 ④ `base_url` 可配置，支持第三方 API ⑤ 错误处理：超时、认证失败、速率限制 |
 
+**配置示例（三个模型通过同一 Provider 切换）：**
+
+```yaml
+# config.yaml
+provider:
+  name: openai
+  base_url: https://api.example.com/v1
+  api_key_env: LLM_API_KEY
+  model: deepseek-v4-pro         # 切换为此行即可换模型
+  # model: deepseek-v4-flash
+  # model: qwen3.7-max
+  # model: Qwen2.5-14B-Instruct
+```
+
 **测试（先红后绿）：**
 - `test_openai_compat_requires_api_key`：无 API Key → `LLMAuthError`
 - `test_openai_compat_tool_def_format`：ToolDef 转换为 OpenAI tool format 正确
@@ -219,6 +291,7 @@ Phase 7: Delivery
 **DoD：**
 - ✅ 测试通过
 - ✅ 支持 `base_url` 配置
+- ✅ 切换模型仅需修改 `model` 字段，无需改代码
 
 ---
 
@@ -301,9 +374,9 @@ Phase 7: Delivery
 
 ---
 
-## Phase 4：Core（4 个 Task）
+## Phase 4：Core（5 个 Task）
 
-**Milestone：** Harness 可运行完整的主循环（Mock 模式），能拦截危险命令
+**Milestone：** Harness 可运行完整的主循环（Mock 模式），能拦截危险命令，支持记忆持久化
 
 ### T10：Guardrail（SP1）
 
@@ -329,9 +402,10 @@ Phase 7: Delivery
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.2 的主循环骨架：组织上下文 → 调用 LLM → 解析 → 分发 → 回灌 → 停机 |
+| **目标** | 实现 SPEC §3.2 的主循环骨架 |
 | **涉及文件** | `src/harness/loop.py`, `src/tests/test_loop.py` |
-| **实现要点** | ① `run(task, config) → RunResult` ② 主循环骨架：初始化 Context → 调用 LLM → 解析 ToolCall → Guardrail 检查 → 分发工具 → 收集结果 → 回灌 → 循环 ③ 依赖注入：接收 LLMProvider, ToolDispatcher, Guardrail 等实例 |
+| **设计原则：** 依赖注入。Loop 不负责创建 Provider、Dispatcher、Guardrail、Memory、FeedbackEngine，全部由外部注入 |
+| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：初始化 Context → 调用 LLM → 解析 ToolCall → Guardrail 检查 → 分发工具 → 收集结果 → 回灌 → 循环 ③ 构造注入所有依赖 ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
 
 **测试（先红后绿）：**
 - `test_loop_with_mock_finish`：MockProvider 返回 Finish → 成功停机
@@ -380,11 +454,31 @@ Phase 7: Delivery
 
 ---
 
-## Phase 5：Feedback Engine（4 个 Task）⭐ 主要贡献
+### T14：Memory（SP1）
+
+| 字段 | 内容 |
+|------|------|
+| **目标** | 实现 SPEC §3.7，JSON 文件记忆 |
+| **涉及文件** | `src/harness/memory.py`, `src/tests/test_memory.py` |
+| **实现要点** | ① `load()` / `save()` / `add_decision()` / `get_context()` ② 超过 1MB 自动截断（保留最近 100 条）③ 文件不存在时返回空 Memory |
+
+**测试（先红后绿）：**
+- `test_memory_save_and_load`：写入→读取→一致
+- `test_memory_add_decision`：追加决策→验证内容
+- `test_memory_get_context`：返回格式化字符串
+- `test_memory_auto_truncate`：超限→截断保留最近 N 条
+
+**DoD：**
+- ✅ 测试通过
+- ✅ 截断策略正确
+
+---
+
+## Phase 5：Feedback Engine（3 个 Task）⭐ 主要贡献
 
 **Milestone：** Feedback Engine 可对 pytest 输出进行分类，生成差异化的修复 Prompt
 
-### T14：Feedback 数据模型（SP1）
+### T15：Feedback 数据模型（SP1）
 
 | 字段 | 内容 |
 |------|------|
@@ -403,36 +497,18 @@ Phase 7: Delivery
 
 ---
 
-### T15：Collector（SP1）
+### T16：Collector + FailureAnalyzer（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.5.1 中的 Collector，收集原始输出 |
-| **涉及文件** | `src/feedback/collector.py`, `src/tests/test_collector.py` |
-| **实现要点** | ① 从 ToolResult 提取 stdout, stderr, exit_code ② 标准化输出格式（去除 ANSI 转义序列）③ 提取关键行（错误行、失败测试名称） |
-
-**测试（先红后绿）：**
-- `test_collector_extracts_stdout`：从 ToolResult 提取 stdout
-- `test_collector_strips_ansi`：含 ANSI 转义的输出 → 去除转义
-- `test_collector_extracts_failed_tests`：pytest 输出 → 提取 FAILED 测试名称
-
-**DoD：**
-- ✅ 测试通过
-- ✅ 输出已标准化（无 ANSI 转义）
-
----
-
-### T16：FailureAnalyzer（SP2）
-
-| 字段 | 内容 |
-|------|------|
-| **目标** | 实现 SPEC §3.5.3，解析 pytest 输出，分类失败类型 |
+| **目标** | 实现 SPEC §3.5.1（Collector）+ §3.5.3（Analyzer），收集原始输出并分类失败类型 |
 | **涉及文件** | `src/feedback/analyzer.py`, `src/tests/test_analyzer.py` |
-| **实现要点** | ① 正则/模式匹配解析 pytest stdout/stderr ② 区分 SYNTAX_ERROR / IMPORT_ERROR / ASSERTION_ERROR / TIMEOUT / RUNTIME_ERROR / TEST_FAILURE / UNKNOWN ③ AssertionError 提取预期值和实际值 ④ 提取失败位置（文件:行号） |
+| **实现要点** | ① **Collector**：从 ToolResult 提取 stdout/stderr/exit_code，去除 ANSI 转义序列，提取关键行 ② **Analyzer**：正则/模式匹配解析 pytest 输出 ③ 区分 SYNTAX_ERROR / IMPORT_ERROR / ASSERTION_ERROR / TIMEOUT / RUNTIME_ERROR / TEST_FAILURE / UNKNOWN ④ AssertionError 提取预期值和实际值 ⑤ 提取失败位置（文件:行号） |
 
 **风险：** Windows 与 Linux 的 pytest 输出格式可能略有差异，测试时需覆盖两种格式
 
 **测试（先红后绿）：**
+- `test_analyzer_strips_ansi`：含 ANSI 转义 → 去除转义
 - `test_analyzer_syntax_error`：注入 SyntaxError → 分类 SYNTAX_ERROR
 - `test_analyzer_import_error`：注入 ImportError → 分类 IMPORT_ERROR
 - `test_analyzer_assertion_error`：注入 AssertionError → ASSERTION_ERROR + 提取预期/实际值
@@ -479,9 +555,9 @@ Phase 7: Delivery
 
 ---
 
-## Phase 6：Integration（3 个 Task）
+## Phase 6：Integration（2 个 Task）
 
-**Milestone：** 完整 TDD 闭环可运行，记忆持久化，机制可演示
+**Milestone：** 完整 TDD 闭环可运行，机制可演示
 
 ### T18：集成 Feedback Engine 到 Main Loop（SP3）
 
@@ -502,27 +578,7 @@ Phase 7: Delivery
 
 ---
 
-### T19：Memory（SP1）
-
-| 字段 | 内容 |
-|------|------|
-| **目标** | 实现 SPEC §3.7，JSON 文件记忆 |
-| **涉及文件** | `src/harness/memory.py`, `src/tests/test_memory.py` |
-| **实现要点** | ① `load()` / `save()` / `add_decision()` / `get_context()` ② 超过 1MB 自动截断（保留最近 100 条）③ 文件不存在时返回空 Memory |
-
-**测试（先红后绿）：**
-- `test_memory_save_and_load`：写入→读取→一致
-- `test_memory_add_decision`：追加决策→验证内容
-- `test_memory_get_context`：返回格式化字符串
-- `test_memory_auto_truncate`：超限→截断保留最近 N 条
-
-**DoD：**
-- ✅ 测试通过
-- ✅ 截断策略正确
-
----
-
-### T20：机制演示脚本（SP2）
+### T19：机制演示脚本（SP2）
 
 | 字段 | 内容 |
 |------|------|
@@ -540,11 +596,11 @@ Phase 7: Delivery
 
 **Milestone：** 项目可交付、可运行、文档完整
 
-### T21：README 完善（SP1）
+### T20：README 完善（SP1）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 完成 README，包含所有必需章节 |
+| **目标** | 完成 README，包含所有必需章节（初版已在 T1 创建，开发过程中持续更新） |
 | **涉及文件** | `README.md` |
 | **实现要点** | ① 项目简介 ② 安装步骤（pip install / docker）③ 运行命令 ④ 分发命令 ⑤ 目录结构 ⑥ 安全边界说明（Key 配置方式）⑦ 已知限制 |
 
@@ -552,7 +608,9 @@ Phase 7: Delivery
 - ✅ 包含全部必需章节
 - ✅ Key 安全配置方式写清
 
-### T22：AGENT_LOG + 最终验证（SP1）
+---
+
+### T21：AGENT_LOG + 最终验证（SP1）
 
 | 字段 | 内容 |
 |------|------|
@@ -571,29 +629,28 @@ Phase 7: Delivery
 
 | Task | 名称 | SP | 阶段 |
 |------|------|----|------|
-| T1 | 项目脚手架 | 1 | Phase 1 |
+| T1 | 项目脚手架（含 Docker + CI + README 初版） | 1 | Phase 1 |
 | T2 | 数据模型 + Config | 1 | Phase 1 |
 | T3 | CLI 入口 | 2 | Phase 2 |
-| T4 | LLMProvider 抽象 + Mock | 2 | Phase 2 |
+| T4 | LLMProvider 抽象 + Mock + Factory | 2 | Phase 2 |
 | T5 | OpenAICompatibleProvider | 1 | Phase 2 |
 | T6 | BaseTool + Dispatcher | 1 | Phase 3 |
 | T7 | ReadFile | 1 | Phase 3 |
 | T8 | WriteFile | 1 | Phase 3 |
 | T9 | RunShell | 1 | Phase 3 |
 | T10 | Guardrail | 1 | Phase 4 |
-| T11 | Main Loop 框架 | 2 | Phase 4 |
+| T11 | Main Loop 框架（依赖注入） | 2 | Phase 4 |
 | T12 | Context 管理 | 1 | Phase 4 |
-| T13 | 停机条件 | 1 | Phase 4 |
-| T14 | Feedback 数据模型 | 1 | Phase 5 ⭐ |
-| T15 | Collector | 1 | Phase 5 ⭐ |
-| T16 | FailureAnalyzer | 2 | Phase 5 ⭐ |
+| T13 | 停机条件（含 Finish 虚拟工具） | 1 | Phase 4 |
+| T14 | Memory | 1 | Phase 4 |
+| T15 | Feedback 数据模型 | 1 | Phase 5 ⭐ |
+| T16 | Collector + FailureAnalyzer | 2 | Phase 5 ⭐ |
 | T17 | FeedbackEngine + 策略 | 2 | Phase 5 ⭐ |
 | T18 | 集成 Feedback → Loop | 3 | Phase 6 |
-| T19 | Memory | 1 | Phase 6 |
-| T20 | 机制演示脚本 | 2 | Phase 6 |
-| T21 | README | 1 | Phase 7 |
-| T22 | AGENT_LOG + 最终验证 | 1 | Phase 7 |
-| | **合计** | **30 SP** | |
+| T19 | 机制演示脚本 | 2 | Phase 6 |
+| T20 | README 完善 | 1 | Phase 7 |
+| T21 | AGENT_LOG + 最终验证 | 1 | Phase 7 |
+| | **合计** | **29 SP** | |
 
 ---
 
@@ -602,8 +659,8 @@ Phase 7: Delivery
 | 并行组 | 包含 Task | 说明 |
 |--------|----------|------|
 | **Group A** | T7, T8, T9 | 三个工具互不依赖，可并行 |
-| **Group B** | T12, T13 | Context 和停机条件互不依赖，可并行 |
-| **Group C** | T21, T22 | 文档收尾可并行 |
+| **Group B** | T12, T13, T14 | Context / 停机条件 / Memory 互不依赖，可并行 |
+| **Group C** | T20, T21 | 文档收尾可并行 |
 
 ---
 
