@@ -89,12 +89,15 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - 每次运行在 `output/logs/` 下生成时间戳命名的日志文件
 - 日志包含：LLM 请求/响应、工具调用与结果、Guardrail 拦截记录、Feedback 分类结果
 
-### US-05：切换 LLM 供应商（P2）
+### US-05：切换 LLM 供应商（P1）
 
-> 作为一名开发者，我希望通过修改配置文件切换 LLM 供应商（如从 OpenAI 切换到 Mock），而不需要修改代码。
+> 作为一名开发者，我希望无需修改源码即可切换 LLM Provider 或模型，以便在不同环境和不同模型之间快速切换。
 
 **验收标准：**
-- `config.yaml` 中修改 `provider` 字段即可切换
+- 默认读取 `config.yaml` 中的 provider 配置
+- CLI 参数（`--provider`、`--model`）可覆盖配置文件
+- 优先级规则：CLI 参数 > 配置文件 > 默认值
+- 无需修改任何源码即可切换 Provider
 - Mock Provider 在无网络环境下返回预设响应，用于测试
 
 ### US-06：使用反馈引擎调试 AssertionError（P1）
@@ -494,6 +497,8 @@ class FailureType(Enum):
   - 默认路径：config.yaml（项目根目录）
   - 可通过 CLI 参数 --config 覆盖
 
+优先级：CLI 参数 > 配置文件 > 默认值
+
 内容：
   version: 1                     # 配置版本号，用于向后兼容
   provider:
@@ -521,12 +526,22 @@ class FailureType(Enum):
 基于 typer 的命令行入口：
 
 ```
-tdd-harness run "任务描述"     # 执行编码任务
-tdd-harness run --config custom.yaml "任务描述"
+# 基础用法
+tdd-harness run "任务描述"                       # 使用 config.yaml 的配置
+tdd-harness run --config custom.yaml "任务描述"   # 指定配置文件
+
+# 临时切换 Provider / 模型（CLI 参数覆盖配置文件）
+tdd-harness run "任务描述" --provider mock
+tdd-harness run "任务描述" --provider openai --model gpt-4o
+tdd-harness run "任务描述" --provider openai --model claude-sonnet-4
+
+# 机制演示
 tdd-harness demo guardrail      # 运行 Guardrail 机制演示
 tdd-harness demo feedback       # 运行 Feedback 机制演示
 tdd-harness demo memory         # 运行 Memory 机制演示
 ```
+
+**优先级：CLI 参数 > 配置文件 > 默认值**
 
 ---
 
@@ -836,7 +851,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 | Feedback Engine | 正确分类 SYNTAX_ERROR / IMPORT_ERROR / ASSERTION_ERROR / TIMEOUT / RUNTIME_ERROR；每种类型生成不同修复 Prompt |
 | Memory | 保存和加载 JSON 文件；跨会话保持数据；超过 1MB 自动截断 |
 | Config | 加载 YAML 配置；缺失字段使用默认值；CLI 参数可覆盖配置文件 |
-| CLI | `tdd-harness run` 可执行任务；`tdd-harness demo` 可运行机制演示 |
+| CLI | `tdd-harness run` 可执行任务；`--provider` 和 `--model` 参数可覆盖配置；`tdd-harness demo` 可运行机制演示 |
 
 ### 9.2 测试验收
 
