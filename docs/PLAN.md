@@ -213,7 +213,18 @@ Phase 7: Delivery
 |------|------|
 | **目标** | 实现 SPEC §6 的所有核心实体和 §3.8 的 Config 加载 |
 | **涉及文件** | `src/harness/models.py`, `src/harness/config.py`, `src/tests/test_models.py`, `src/tests/test_config.py`, `config.yaml` |
-| **实现要点** | ① 所有 pydantic 模型（Message, ToolDef, ToolCall, LLMResponse, ToolResult, FailureType, AnalysisResult, Feedback, GuardrailResult, Decision, Memory, Context, RunResult）② Config 从 YAML 加载，支持默认值 ③ 支持 CLI 参数覆盖（预留 merge 方法）④ `config.yaml` 作为默认配置文件 |
+| **实现要点** | ① 所有 pydantic 模型（Message, ToolDef, ToolCall, LLMResponse, FailureType, AnalysisResult, Feedback, GuardrailResult, StopDecision, Decision, Memory, Context, RunResult）② **`ToolResult` 统一数据结构**：所有工具返回相同格式 `ToolResult(success, output, error, exit_code, artifact=None, metadata={})`，Dispatcher 和 Feedback Engine 无需针对不同工具写特殊处理 ③ Config 从 YAML 加载，支持默认值 ④ 支持 CLI 参数覆盖（预留 merge 方法）⑤ `config.yaml` 作为默认配置文件 |
+
+**ToolResult 统一结构：**
+```python
+class ToolResult(BaseModel):
+    success: bool
+    output: str = ""          # stdout 内容
+    error: str | None = None  # stderr 或错误信息
+    exit_code: int | None = None
+    artifact: str | None = None   # 可选产物（如读到的文件内容）
+    metadata: dict = {}            # 可选元数据
+```
 
 **测试（先红后绿）：**
 - `test_config_load_defaults`：空配置 → 返回默认值
@@ -255,7 +266,7 @@ Phase 7: Delivery
 |------|------|
 | **目标** | 实现 SPEC §3.1.1 + §3.1.2，建立 LLM 抽象层和工厂 |
 | **涉及文件** | `src/providers/base.py`, `src/providers/mock.py`, `src/providers/factory.py`, `src/tests/test_providers.py` |
-| **实现要点** | ① `LLMProvider` 抽象基类（ABC），定义 `generate(messages, tools, config) → LLMResponse` ② `MockProvider` 持有 `preset_responses: Dict[str, LLMResponse]`，按输入消息匹配 ③ 不匹配时返回默认响应 ④ **`ProviderFactory.create(config) → LLMProvider`**：根据 `config.provider.name` 创建对应实例（mock → MockProvider, openai → OpenAICompatibleProvider），新增 Provider 只需在 Factory 中注册 ⑤ 错误边界：超时、认证异常 |
+| **实现要点** | ① `LLMProvider` 抽象基类（ABC），定义 `generate(messages, tools, config) → LLMResponse` ② `MockProvider` 持有 `preset_responses: Dict[str, LLMResponse]`，按输入消息匹配 ③ 不匹配时返回默认响应 ④ **`ProviderFactory` 使用注册机制**：`ProviderFactory.register("mock", MockProvider)`、`ProviderFactory.register("openai", OpenAICompatibleProvider)`，创建时 `ProviderFactory.create(config)` 自动根据 `config.provider.name` 查找注册的类并实例化 ⑤ 新增 Provider 只需注册一行，不修改 Factory 源码 ⑥ 错误边界：超时、认证异常 |
 
 **测试（先红后绿）：**
 - `test_mock_provider_returns_preset`：输入特定消息 → 返回预设响应
@@ -313,7 +324,14 @@ provider:
 |------|------|
 | **目标** | 实现 SPEC §3.3 + §3.4.0，建立工具分发机制 |
 | **涉及文件** | `src/tools/base.py`, `src/tools/dispatcher.py`, `src/tests/test_dispatcher.py` |
-| **实现要点** | ① `BaseTool(ABC)` 定义 `execute(arguments: dict) → ToolResult` ② `ToolDispatcher` 维护 `name→tool` 映射 ③ `register(name, tool)` 和 `dispatch(tool_call)` 方法 ④ 未注册的工具返回错误结果 |
+| **实现要点** | ① `BaseTool(ABC)` 定义 `name: str`, `description: str`, `input_schema: dict` 类属性 + `execute(arguments: dict) → ToolResult` 抽象方法 ② Tool 自带元数据，Dispatcher 注册时自动读取 `tool.name`，避免 `register("read_file", WriteFile())` 这类人为错误 ③ `ToolDispatcher` 维护 `name→tool` 映射，`register(tool: BaseTool)` 和 `dispatch(tool_call) → ToolResult` 方法 ④ 未注册的工具返回错误结果 |
+
+**Tool 注册示例：**
+```python
+dispatcher.register(ReadFile())     # 自动读取 ReadFile.name = "read_file"
+dispatcher.register(WriteFile())    # 自动读取 WriteFile.name = "write_file"
+dispatcher.register(RunShell())     # 自动读取 RunShell.name = "run_shell"
+```
 
 **测试（先红后绿）：**
 - `test_dispatcher_register_and_dispatch`：注册 → 分发 → 验证调用
@@ -368,7 +386,15 @@ provider:
 |------|------|
 | **目标** | 实现 SPEC §3.4.3，执行 Shell 命令 |
 | **涉及文件** | `src/tools/run_shell.py`, `src/tests/test_tools.py` |
-| **实现要点** | ① 继承 BaseTool ② `subprocess.run()` 执行 ③ 超时控制（默认 30s）④ 捕获 stdout/stderr/exit_code |
+| **实现要点** | ① 继承 BaseTool ② `subprocess.run()` 执行 ③ 超时控制（默认 30s）④ 捕获 stdout/stderr/exit_code ⑤ **支持 `cwd` 参数**：指定命令工作目录，后续 `pytest tests/`、`python main.py` 无需 Loop 切换目录 |
+
+**输入结构：**
+```python
+class RunShellInput(BaseModel):
+    command: str
+    timeout: int = 30
+    cwd: str | None = None  # 工作目录，None 表示当前目录
+```
 
 **风险：** Windows 与 Linux 的 Shell 命令差异（如 `echo` 行为），测试时注意跨平台兼容
 
@@ -413,7 +439,31 @@ provider:
 | **目标** | 实现 SPEC §3.2 的主循环骨架 |
 | **涉及文件** | `src/harness/loop.py`, `src/harness/context.py`, `src/harness/stop_condition.py`, `src/tests/test_loop.py` |
 | **设计原则：** 依赖注入。Loop 不负责创建 Provider、Dispatcher、Guardrail、Memory、FeedbackEngine、StopCondition，全部由外部注入 |
-| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：初始化 Context → 调用 LLM → 解析 ToolCall → Guardrail 检查 → 分发工具 → 收集结果 → 回灌 → 循环 ③ 构造注入所有依赖 ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 ⑤ 停机判断委托给 `StopCondition.should_stop()` |
+| **职责边界：** Loop **只负责流程控制**，不实现任何具体逻辑。Context 拼接委托给 `ContextManager`，停机判断委托给 `StopCondition`，反馈分析委托给 `FeedbackEngine`，记忆读写委托给 `Memory` |
+| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：`ContextManager.build()` → `Provider.generate()` → `Guardrail.check_tool_call()` → `Dispatcher.dispatch()` → `FeedbackEngine.analyze()` → `StopCondition.should_stop()` → 循环/终止 ③ 构造注入所有依赖 ④ **`Finish` 是内置虚拟工具（Virtual Tool）**：不对应实际 Dispatcher（不进入 `dispatch()`），由 Loop 直接识别并交由 `StopCondition.on_finish()` 处理。协议格式：`ToolCall(name="finish", arguments={"reason": "tests passed"})`，`reason` 字段记录结束原因，`on_finish()` 根据上下文判断成功或失败 |
+
+**伪代码：**
+```python
+def run(self, task, config):
+    ctx = self.context_manager.build(task)
+    while True:
+        response = self.provider.generate(ctx.messages, self.tool_defs, config)
+        for tool_call in response.tool_calls:
+            if tool_call.name == "finish":
+                return self.stop_condition.on_finish(tool_call)
+            guard = self.guardrail.check_tool_call(tool_call)
+            if not guard.allowed:
+                return RunResult(success=False, error=guard.reason)
+            result = self.dispatcher.dispatch(tool_call)
+            ctx = self.context_manager.append_tool_result(ctx, tool_call, result)
+            if result.exit_code is not None:  # 测试命令
+                feedback = self.feedback_engine.analyze(result, ctx)
+                if feedback:
+                    ctx = self.context_manager.append_feedback(ctx, feedback)
+            decision = self.stop_condition.should_stop(ctx)
+            if decision.should_stop:
+                return RunResult(success=decision.success, ...)
+```
 
 **测试（先红后绿）：**
 - `test_loop_with_mock_finish`：MockProvider 返回 Finish → 成功停机
@@ -449,7 +499,15 @@ provider:
 |------|------|
 | **目标** | 实现 SPEC §3.2 中定义的四种停机条件，独立为 `StopCondition` 类 |
 | **涉及文件** | `src/harness/stop_condition.py`, `src/tests/test_stop_condition.py` |
-| **实现要点** | ① `StopCondition` 类判断四种停机条件：测试全部通过 / 达到最大迭代次数 / LLM 返回 Finish / Guardrail 拦截致命动作 ② `should_stop(context) → (bool, reason)` ③ StopCondition 由外部注入到 Loop ④ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
+| **实现要点** | ① `StopCondition` 类判断四种停机条件：测试全部通过 / 达到最大迭代次数 / LLM 返回 Finish / Guardrail 拦截致命动作 ② `should_stop(context) → StopDecision` ③ **`StopDecision` 对象**包含 `should_stop: bool`, `success: bool`, `reason: str`，避免元组无法区分"成功结束"与"失败结束" ④ StopCondition 由外部注入到 Loop ⑤ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
+
+**StopDecision 结构：**
+```python
+class StopDecision(BaseModel):
+    should_stop: bool
+    success: bool
+    reason: str = ""
+```
 
 **测试（先红后绿）：**
 - `test_stop_condition_max_iterations`：持续返回工具调用 → 达到上限后停机
@@ -539,7 +597,23 @@ provider:
 |------|------|
 | **目标** | 实现 SPEC §3.5.4，完整的反馈引擎，连接 Collector + Analyzer + 策略 |
 | **涉及文件** | `src/feedback/engine.py`, `src/feedback/strategies.py`, `src/tests/test_feedback_engine.py` |
-| **实现要点** | ① `FeedbackEngine.analyze(tool_result, context) → Feedback | None` ② 调用 Collector → Analyzer → 策略选择 ③ 每种 FailureType 生成差异化 repair_prompt ④ 成功结果返回 None |
+| **实现要点** | ① `FeedbackEngine.analyze(tool_result, context) → Feedback | None` ② 调用 Collector → Analyzer → 策略选择 ③ **使用策略映射**：`strategy_map[FailureType] → RepairStrategy`，每种 FailureType 对应一个策略类，新增类型只需添加策略不修改 Engine ④ 成功结果返回 None |
+
+**策略映射示例：**
+```python
+class RepairStrategy(ABC):
+    def generate(self, analysis: AnalysisResult) -> str: ...
+
+class SyntaxStrategy(RepairStrategy): ...
+class AssertionStrategy(RepairStrategy): ...
+
+strategy_map = {
+    FailureType.SYNTAX_ERROR: SyntaxStrategy(),
+    FailureType.ASSERTION_ERROR: AssertionStrategy(),
+    ...
+}
+# Engine 中：strategy = strategy_map[analysis.failure_type]
+```
 
 **策略表：**
 

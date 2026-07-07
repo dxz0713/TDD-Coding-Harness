@@ -264,6 +264,12 @@ TDD Coding Harness 的价值不在于"另一个编码 Agent"，而在于：
 - LLM 返回 `Finish` 工具调用 → 按结果判定
 - Guardrail 拦截致命动作且用户拒绝 → 失败
 
+**Finish 协议：**
+`Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号：
+- 格式：`ToolCall(name="finish", arguments={"reason": "tests passed"})`
+- 处理：Loop 直接识别 `tool_call.name == "finish"`，不进入 `dispatch()`
+- 判定：由 StopCondition 根据上下文判断成功或失败（如 `reason` 内容、测试结果等）
+
 ### 3.3 工具分发器（`src/harness/dispatcher.py`）
 
 ```
@@ -685,6 +691,8 @@ class ToolResult(BaseModel):
     output: str = ""
     error: str | None = None
     exit_code: int | None = None
+    artifact: str | None = None   # 可选产物（如读到的文件内容）
+    metadata: dict = {}            # 可选元数据
 
 # === 反馈层 ===
 class FailureType(str, Enum):
@@ -734,6 +742,11 @@ class Context(BaseModel):
     memory: Memory | None = None
     iteration: int = 0
     task: str = ""
+
+class StopDecision(BaseModel):
+    should_stop: bool
+    success: bool
+    reason: str = ""
 
 class RunResult(BaseModel):
     success: bool
