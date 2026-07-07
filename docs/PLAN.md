@@ -29,17 +29,17 @@
 ┌───────────────────────────────────────────────────────────────┐
 │                      Harness Main Loop                         │
 │                                                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
-│  │  Build   │  │  Call    │  │Guardrail │  │  Dispatch    │  │
-│  │ Context  │→│ Provider │→│  Check   │→│  Tool        │  │
-│  └──────────┘  └──────────┘  └──────────┘  └──────┬───────┘  │
-│                                                    │          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐         │          │
-│  │  Stop    │←│  Feedback│←│  Collect │←─────────┘          │
-│  │ Decision │  │  Engine  │  │  Result  │                    │
-│  └──────────┘  └──────────┘  └──────────┘                    │
-│       │                                                       │
-│       ▼                                                       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌──────────┐  │
+│  │  Build   │  │  Call    │  │  Decision    │  │Guardrail │  │
+│  │ Context  │→│ Provider │→│  Layer ①     │→│  Check   │  │
+│  └──────────┘  └──────────┘  └──────────────┘  └─────┬────┘  │
+│                                                       │       │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │       │
+│  │  Stop    │←│  Feedback│←│  Collect │←────────────┘       │
+│  │ Decision │  │  Engine  │  │  Result  │   ┌──────────┐    │
+│  └──────────┘  └──────────┘  └──────────┘   │ Dispatch │    │
+│       │                                      │  Tool    │    │
+│       ▼                                      └──────────┘    │
 │  ┌──────────┐                                                │
 │  │  Memory  │  (Context 持久化)                               │
 │  └──────────┘                                                │
@@ -47,12 +47,16 @@
                           │
                           ▼
     ┌──────────────────────────────────────────────────┐
-    │               Feedback Engine                     │
+    │         Feedback Engine · Adaptive Repair          │
     │  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
-    │  │Collector │→│ Analyzer │→│ Repair Strategy │  │
-    │  │(原始输出)  │  │(失败分类)  │  │(差异化 Prompt)  │  │
+    │  │Collector │→│ Analyzer │→│ Adaptive       │  │
+    │  │(原始输出)  │  │(失败分类)  │  │ Repair Strategy│  │
     │  └──────────┘  └──────────┘  └────────────────┘  │
     └──────────────────────────────────────────────────┘
+
+① Decision Layer: 重复 Tool 去重、重复错误检测、Retry Policy、Stop Policy
+   （Harness 自主决策，不依赖 LLM 判断）
+```
 ```
 
 ---
@@ -99,9 +103,9 @@ src/
 │   ├── test_cli.py, test_loop_integration.py
 │   └── ...
 └── examples/
-    ├── guardrail_demo.py   # Guardrail 机制演示（T19）
-    ├── feedback_demo.py    # Feedback 机制演示（T19）
-    └── full_cycle_demo.py  # 完整周期演示（T19）
+    ├── demo_guardrail.py           # Guardrail 机制演示（T19）
+    ├── demo_feedback.py            # Feedback 机制演示（T19）
+    └── demo_autonomous_repair.py   # 自适应修复完整周期演示（T19）
 ```
 
 ---
@@ -440,7 +444,8 @@ class RunShellInput(BaseModel):
 | **涉及文件** | `src/harness/loop.py`, `src/harness/context.py`, `src/harness/stop_condition.py`, `src/tests/test_loop.py` |
 | **设计原则：** 依赖注入。Loop 不负责创建 Provider、Dispatcher、Guardrail、Memory、FeedbackEngine、StopCondition，全部由外部注入 |
 | **职责边界：** Loop **只负责流程控制**，不实现任何具体逻辑。Context 拼接委托给 `ContextManager`，停机判断委托给 `StopCondition`，反馈分析委托给 `FeedbackEngine`，记忆读写委托给 `Memory` |
-| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：`ContextManager.build()` → `Provider.generate()` → `Guardrail.check_tool_call()` → `Dispatcher.dispatch()` → `FeedbackEngine.analyze()` → `StopCondition.should_stop()` → 循环/终止 ③ 构造注入所有依赖 ④ **`Finish` 是内置虚拟工具（Virtual Tool）**：不对应实际 Dispatcher（不进入 `dispatch()`），由 Loop 直接识别并交由 `StopCondition.on_finish()` 处理。协议格式：`ToolCall(name="finish", arguments={"reason": "tests passed"})`，`reason` 字段记录结束原因，`on_finish()` 根据上下文判断成功或失败 |
+| **Harness Superpowers（自主决策职责）：** Loop 在执行工具调用前插入 Decision Layer，负责以下自主决策（不依赖 LLM 判断）：① 重复 Tool 去重 — 相同参数的同名工具不重复执行 ② 重复错误检测 — 同一错误连续出现 N 次走止损策略 ③ Retry Policy — 失败工具按策略重试（而非每次都问 LLM）④ Tool Cache — 幂等的读取操作结果缓存 ⑤ Short-circuit — 无用调用（如空参数）直接跳过 |
+| **实现要点** | ① `run(task, config) → RunResult` ② 主循环流程：`ContextManager.build()` → `Provider.generate()` → **Decision Layer（去重/缓存/策略）** → `Guardrail.check_tool_call()` → `Dispatcher.dispatch()` → `FeedbackEngine.analyze()` → `AutonomousStopDecision.should_stop()` → 循环/终止 ③ 构造注入所有依赖 ④ **`Finish` 是内置虚拟工具（Virtual Tool）**：不对应实际 Dispatcher（不进入 `dispatch()`），由 Loop 直接识别并交由 `AutonomousStopDecision.on_finish()` 处理。协议格式：`ToolCall(name="finish", arguments={"reason": "tests passed"})`，`reason` 字段记录结束原因 |
 
 **伪代码：**
 ```python
@@ -493,13 +498,13 @@ def run(self, task, config):
 
 ---
 
-### T13：停机条件（SP2）
+### T13：停机条件 — Autonomous Stop Decision（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.2 中定义的四种停机条件，独立为 `StopCondition` 类 |
+| **目标** | 实现 SPEC §3.2 中定义的四种停机条件，独立为 `AutonomousStopDecision` 类。强调停机是 **Harness 自主决定**，而非 LLM 决定 |
 | **涉及文件** | `src/harness/stop_condition.py`, `src/tests/test_stop_condition.py` |
-| **实现要点** | ① `StopCondition` 类判断四种停机条件：测试全部通过 / 达到最大迭代次数 / LLM 返回 Finish / Guardrail 拦截致命动作 ② `should_stop(context) → StopDecision` ③ **`StopDecision` 对象**包含 `should_stop: bool`, `success: bool`, `reason: str`，避免元组无法区分"成功结束"与"失败结束" ④ StopCondition 由外部注入到 Loop ⑤ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
+| **实现要点** | ① `AutonomousStopDecision` 类判断四种停机条件：测试全部通过 / 达到最大迭代次数 / LLM 返回 Finish / Guardrail 拦截致命动作 ② `should_stop(context) → StopDecision` ③ **`StopDecision` 对象**包含 `should_stop: bool`, `success: bool`, `reason: str`，避免元组无法区分"成功结束"与"失败结束" ④ 由外部注入到 Loop ⑤ `Finish` 是内置虚拟工具（Virtual Tool），不对应实际 Dispatcher，仅作为 Agent 主动结束任务的协议信号 |
 
 **StopDecision 结构：**
 ```python
@@ -542,7 +547,7 @@ class StopDecision(BaseModel):
 
 ## Phase 5：Feedback Engine（3 个 Task）⭐ 主要贡献
 
-**Milestone：** Feedback Engine 可对 pytest 输出进行分类，生成差异化的修复 Prompt
+**Milestone：** 自适应修复引擎可对 pytest 输出进行分类，生成差异化的修复 Prompt
 
 ### T15：Feedback 数据模型（SP1）
 
@@ -591,11 +596,11 @@ class StopDecision(BaseModel):
 
 ---
 
-### T17：FeedbackEngine + 修复策略（SP2）
+### T17：FeedbackEngine + 自适应修复策略（Adaptive Repair）（SP2）
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 实现 SPEC §3.5.4，完整的反馈引擎，连接 Collector + Analyzer + 策略 |
+| **目标** | 实现 SPEC §3.5.4，完整的反馈引擎，连接 Collector + Analyzer + 自适应修复策略 |
 | **涉及文件** | `src/feedback/engine.py`, `src/feedback/strategies.py`, `src/tests/test_feedback_engine.py` |
 | **实现要点** | ① `FeedbackEngine.analyze(tool_result, context) → Feedback | None` ② 调用 Collector → Analyzer → 策略选择 ③ **使用策略映射**：`strategy_map[FailureType] → RepairStrategy`，每种 FailureType 对应一个策略类，新增类型只需添加策略不修改 Engine ④ 成功结果返回 None |
 
@@ -667,7 +672,7 @@ strategy_map = {
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §9.3，三个可在 Mock LLM 下确定性复现的机制演示 |
-| **涉及文件** | `examples/guardrail_demo.py`, `examples/feedback_demo.py`, `examples/full_cycle_demo.py` |
+| **涉及文件** | `examples/demo_guardrail.py`, `examples/demo_feedback.py`, `examples/demo_autonomous_repair.py` |
 | **实现要点** | ① Guardrail 演示：构造危险命令 → 拦截 → 输出结果 ② Feedback 演示：注入测试输出 → Analyzer 分类 → 生成修复 Prompt ③ 完整周期：Mock 驱动"写代码→测试→修复→通过"流程 |
 
 **DoD：**
@@ -705,7 +710,17 @@ strategy_map = {
 |------|------|
 | **目标** | 完成 AGENT_LOG.md，做最终验证 |
 | **涉及文件** | `AGENT_LOG.md`, `REFLECTION.md` |
-| **实现要点** | ① AGENT_LOG.md：按时间记录关键节点、subagent 输出、人工干预 ② 验证所有机制演示可运行 ③ 验证 `pytest tests/` 全部通过 |
+| **实现要点** | ① AGENT_LOG.md：按时间记录关键节点，每条记录包含 **Decision → Reason → Result → Reflection** 四段式格式 ② 验证所有机制演示可运行 ③ 验证 `pytest tests/` 全部通过 |
+
+**AGENT_LOG 记录格式示例：**
+```
+## Iteration 4 — Feedback Engine
+
+- Decision: Apply AssertionStrategy
+- Reason: Expected 5 != Actual 3 (AssertionError)
+- Result: Test passed after repair
+- Reflection: Strategy works for simple arithmetic, needs refinement for edge cases
+```
 
 **DoD：**
 - ✅ `pytest tests/` 全部通过

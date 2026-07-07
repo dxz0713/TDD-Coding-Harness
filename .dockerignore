@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+.venv/
+venv/
+env/
+.pytest_cache/
+.cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment & Secrets
+.env
+.env.local
+*.key
+config.local.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & Outputs
+output/logs/
+output/demo/
+output/reports/
+*.log
+
+# Claude
+.claude/

@@ -1,0 +1,22 @@
+# TDD Coding Harness — Default Configuration
+# Priority: CLI arguments > this file > built-in defaults
+version: 1
+
+provider:
+  name: mock          # mock | openai | claude (claude reserved)
+  model: gpt-4o
+  temperature: 0.0
+  max_tokens: 4096
+  timeout: 30
+
+loop:
+  max_iterations: 5
+  workspace: .
+
+guardrail:
+  enabled: true
+  block_list: []
+
+memory:
+  enabled: true
+  path: output/memory.json

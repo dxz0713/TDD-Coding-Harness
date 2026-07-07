@@ -2,6 +2,8 @@
 
 > **项目名称：** TDD Coding Harness
 >
+> **项目目标：** Design and implement an extensible autonomous TDD Harness with built-in decision-making, feedback-driven adaptive repair, and safety mechanisms.
+>
 > **主要贡献：** Feedback Engine（可扩展的反馈闭环引擎）
 >
 > **版本：** v1.0
