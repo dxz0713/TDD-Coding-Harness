@@ -39,6 +39,6 @@ D:\Python3.12\python.exe examples/demo_autonomous_repair.py
 
 ## DoD
 
-- [ ] 三个文件的 Usage 注释改为 `python` 而非本机路径
-- [ ] 210 个测试全部通过
-- [ ] 三个 demo 正常运行
+- [x] 三个文件的 Usage 注释改为 `python` 而非本机路径
+- [x] 210 个测试全部通过
+- [x] 三个 demo 正常运行
