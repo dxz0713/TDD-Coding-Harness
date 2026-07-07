@@ -65,9 +65,9 @@
 
 ```
 src/
-├── cli.py              # CLI 入口（T3）
 ├── harness/
 │   ├── __init__.py
+│   ├── cli.py         # CLI 入口（T3）— 放在 harness/ 下避免全局命名冲突
 │   ├── models.py       # 数据模型（T2）
 │   ├── config.py       # 配置加载（T2）
 │   ├── loop.py         # 主循环（T11）
@@ -200,8 +200,8 @@ Phase 7: Delivery
 | 字段 | 内容 |
 |------|------|
 | **目标** | 建立项目基础结构，确保可安装、可构建 |
-| **涉及文件** | `pyproject.toml`, `.gitignore`, `Dockerfile`, `.dockerignore`, `.gitlab-ci.yml`, `src/__init__.py`, `src/harness/__init__.py`, `src/tools/__init__.py`, `src/providers/__init__.py`, `src/feedback/__init__.py`, `src/tests/__init__.py`, `README.md`（初版） |
-| **实现要点** | ① pyproject.toml 定义项目元数据、依赖（pydantic, typer, pyyaml, openai, python-dotenv）、`[project.scripts]` 入口 ② 创建所有 `__init__.py` ③ Dockerfile 基于 `python:3.12-slim` ④ `.gitlab-ci.yml` 包含 `unit-test` job（pytest 一键运行）⑤ README 初版写项目简介和快速开始 |
+| **涉及文件** | `pyproject.toml`, `.gitignore`, `Dockerfile`, `.dockerignore`, `.gitlab-ci.yml`（或 `.github/workflows/ci.yml`）, `src/__init__.py`, `src/harness/__init__.py`, `src/tools/__init__.py`, `src/providers/__init__.py`, `src/feedback/__init__.py`, `src/tests/__init__.py`, `README.md`（初版） |
+| **实现要点** | ① pyproject.toml 定义项目元数据、依赖（pydantic, typer, pyyaml, openai, python-dotenv）、`[project.scripts]` 入口 ② 创建所有 `__init__.py` ③ Dockerfile 基于 `python:3.12-slim` ④ CI 配置：按实际平台选择 `.gitlab-ci.yml` 或 `.github/workflows/ci.yml`，必须包含 `unit-test` job（pytest 一键运行）⑤ README 初版写项目简介和快速开始 |
 
 **DoD：**
 - `pytest --version` 可运行
@@ -251,8 +251,8 @@ class ToolResult(BaseModel):
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §3.9，基于 typer 的命令行接口 |
-| **涉及文件** | `src/cli.py`, `src/tests/test_cli.py` |
-| **实现要点** | ① `tdd-harness run` 命令：接受 task 参数 + `--config`/`--provider`/`--model` 选项 ② `tdd-harness demo` 命令框架（子命令占位）③ 配置优先级：CLI 参数 > 配置文件 > 默认值 ④ 入口注册在 `pyproject.toml` 的 `[project.scripts]` |
+| **涉及文件** | `src/harness/cli.py`, `src/tests/test_cli.py` |
+| **实现要点** | ① `tdd-harness run` 命令：接受 task 参数 + `--config`/`--provider`/`--model` 选项 ② `tdd-harness demo` 命令框架（子命令占位）③ 配置优先级：CLI 参数 > 配置文件 > 默认值 ④ 入口注册在 `pyproject.toml` 的 `[project.scripts]`（`tdd-harness = "harness.cli:app"`）⑤ CLI 模块放在 `harness/` 下而非 `src/` 根目录，避免与同环境其他项目的 `tdd-harness` 入口产生命名冲突 |
 
 **测试（先红后绿）：**
 - `test_cli_run_help`：`tdd-harness run --help` → 显示帮助

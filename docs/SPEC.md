@@ -507,26 +507,22 @@ class FailureType(Enum):
 
 优先级：CLI 参数 > 配置文件 > 默认值
 
-内容：
-  version: 1                     # 配置版本号，用于向后兼容
-  provider:
-    name: mock | openai | claude
-    model: str
-    temperature: float
-    max_tokens: int
-    timeout: int
+字段及默认值：
 
-  loop:
-    max_iterations: int (默认 5)
-    workspace: str (默认 .)
-
-  guardrail:
-    enabled: bool (默认 true)
-    block_list: List[str]
-
-  memory:
-    enabled: bool (默认 true)
-    path: str (默认 output/memory.json)
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `version` | int | 1 | 配置版本号，用于向后兼容 |
+| `provider.name` | str | "mock" | LLM 供应商：mock / openai / claude |
+| `provider.model` | str | "gpt-4o" | 模型名称 |
+| `provider.temperature` | float | 0.0 | 模型温度参数 |
+| `provider.max_tokens` | int | 4096 | 最大输出 token 数 |
+| `provider.timeout` | int | 30 | API 调用超时秒数 |
+| `loop.max_iterations` | int | 5 | 主循环最大迭代次数 |
+| `loop.workspace` | str | "." | 工作目录 |
+| `guardrail.enabled` | bool | true | 是否启用护栏 |
+| `guardrail.block_list` | List[str] | [] | 自定义危险命令模式 |
+| `memory.enabled` | bool | true | 是否启用记忆 |
+| `memory.path` | str | "output/memory.json" | 记忆文件路径 |
 ```
 
 ### 3.9 CLI（`src/cli.py`）
