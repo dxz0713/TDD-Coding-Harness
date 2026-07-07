@@ -4,7 +4,7 @@ Shows the complete "write code -> test fails -> feedback -> fix -> test passes"
 cycle without a real LLM connection.
 
 Usage:
-    D:\\Python3.12\\python.exe examples/demo_autonomous_repair.py
+    python examples/demo_autonomous_repair.py
 """
 
 from __future__ import annotations

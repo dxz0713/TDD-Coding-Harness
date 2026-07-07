@@ -1,7 +1,7 @@
 """Demonstrate: Guardrail intercepts dangerous commands.
 
 Usage:
-    D:\\Python3.12\\python.exe examples/demo_guardrail.py
+    python examples/demo_guardrail.py
 """
 
 import sys

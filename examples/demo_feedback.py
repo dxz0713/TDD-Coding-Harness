@@ -1,7 +1,7 @@
 """Demonstrate: Feedback Engine classifies failure types.
 
 Usage:
-    D:\\Python3.12\\python.exe examples/demo_feedback.py
+    python examples/demo_feedback.py
 """
 
 import sys
