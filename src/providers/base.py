@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from harness.models import LLMResponse, Message
+from harness.config import LLMConfig
+from harness.models import LLMResponse, Message, ToolDef
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -41,11 +42,18 @@ class LLMProvider(ABC):
     """
 
     @abstractmethod
-    def generate(self, messages: list[Message]) -> LLMResponse:
+    def generate(
+        self,
+        messages: list[Message],
+        tools: list[ToolDef] | None = None,
+        config: LLMConfig | None = None,
+    ) -> LLMResponse:
         """Send a conversation to the LLM and return its response.
 
         Args:
             messages: The conversation history so far.
+            tools: Tool definitions the LLM may call (optional).
+            config: Provider configuration overrides (optional).
 
         Returns:
             A structured response containing text content and/or tool calls.

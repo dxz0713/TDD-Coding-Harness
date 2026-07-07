@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.models import LLMResponse, Message, ToolCall
+from harness.config import LLMConfig
+from harness.models import LLMResponse, Message, ToolCall, ToolDef
 
 from .base import LLMProvider
 
@@ -36,11 +37,19 @@ class MockProvider(LLMProvider):
 
     # ── Provider interface ──────────────────────────────────────────
 
-    def generate(self, messages: list[Message]) -> LLMResponse:
+    def generate(
+        self,
+        messages: list[Message],
+        tools: list[ToolDef] | None = None,
+        config: LLMConfig | None = None,
+    ) -> LLMResponse:
         """Return a preset response keyed by the last user message.
 
         If no user message is found, or the message content is not in
         *preset_responses*, the *default_response* is returned.
+
+        The *tools* and *config* parameters are accepted for interface
+        compatibility but are not used by the mock.
         """
         # Find the last user message
         last_user_msg = next(

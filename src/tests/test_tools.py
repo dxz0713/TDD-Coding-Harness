@@ -6,6 +6,7 @@ ToolDispatcher registration/dispatch.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -215,3 +216,171 @@ class TestToolDispatcherDispatch:
         result = dispatcher.dispatch(call)
         assert result.success is False
         assert result.exit_code == 1
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ReadFile (T7)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestReadFile:
+    """ReadFile reads a file from disk with path-traversal protection."""
+
+    def test_reads_existing_file(self, tmp_path: Path) -> None:
+        """Reading an existing file returns its content."""
+        from tools.read_file import ReadFile
+
+        f = tmp_path / "hello.txt"
+        f.write_text("Hello, world!", encoding="utf-8")
+
+        tool = ReadFile(allowed_root=tmp_path)
+        result = tool.execute(path=str(f))
+        assert result.success is True
+        assert result.output == "Hello, world!"
+
+    def test_file_not_found(self) -> None:
+        """Reading a non-existent file returns an error."""
+        from tools.read_file import ReadFile
+
+        tool = ReadFile()
+        result = tool.execute(path="/nonexistent_file_xyz.txt")
+        assert result.success is False
+        assert result.error is not None
+
+    def test_path_traversal_blocked(self, tmp_path: Path) -> None:
+        """Path traversal (../) is blocked when it escapes the allowed root."""
+        from tools.read_file import ReadFile
+
+        tool = ReadFile(allowed_root=tmp_path)
+        result = tool.execute(path=str(tmp_path / ".." / "escape.txt"))
+        assert result.success is False
+        assert result.error is not None
+        assert "traversal" in result.error.lower() or "outside" in result.error.lower()
+
+    def test_path_is_required(self) -> None:
+        """Empty path returns an error."""
+        from tools.read_file import ReadFile
+
+        tool = ReadFile()
+        result = tool.execute(path="")
+        assert result.success is False
+        assert result.exit_code == 1
+        assert "required" in result.error
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WriteFile (T8)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestWriteFile:
+    """WriteFile writes content to disk with path-traversal protection."""
+
+    def test_writes_file(self, tmp_path: Path) -> None:
+        """Writing a file produces correct content on disk."""
+        from tools.write_file import WriteFile
+
+        target = tmp_path / "out.txt"
+        tool = WriteFile(allowed_root=tmp_path)
+        result = tool.execute(path=str(target), content="file content")
+        assert result.success is True
+        assert target.read_text(encoding="utf-8") == "file content"
+
+    def test_creates_parent_dirs(self, tmp_path: Path) -> None:
+        """Writing to a deep path auto-creates parent directories."""
+        from tools.write_file import WriteFile
+
+        target = tmp_path / "a" / "b" / "c" / "deep.txt"
+        tool = WriteFile(allowed_root=tmp_path)
+        result = tool.execute(path=str(target), content="deep")
+        assert result.success is True
+        assert target.exists()
+        assert target.read_text(encoding="utf-8") == "deep"
+
+    def test_path_traversal_blocked(self, tmp_path: Path) -> None:
+        """Path traversal (../) is blocked when it escapes the allowed root."""
+        from tools.write_file import WriteFile
+
+        tool = WriteFile(allowed_root=tmp_path)
+        result = tool.execute(path=str(tmp_path / ".." / "escape.txt"), content="x")
+        assert result.success is False
+        assert result.error is not None
+        assert "traversal" in result.error.lower() or "outside" in result.error.lower()
+
+    def test_path_is_required(self) -> None:
+        """Empty path returns an error."""
+        from tools.write_file import WriteFile
+
+        tool = WriteFile()
+        result = tool.execute(path="", content="data")
+        assert result.success is False
+        assert result.exit_code == 1
+        assert "required" in result.error
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RunShell (T9)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestRunShell:
+    """RunShell executes shell commands with timeout and cwd support."""
+
+    def test_echo_command(self) -> None:
+        """Echo command returns the echoed text."""
+        from tools.run_shell import RunShell
+
+        tool = RunShell()
+        result = tool.execute(command="echo hello")
+        assert result.success is True
+        assert result.exit_code == 0
+        assert "hello" in result.output
+
+    def test_failure_exit_code(self) -> None:
+        """A command that exits with non-zero returns success=False."""
+        from tools.run_shell import RunShell
+
+        tool = RunShell()
+        result = tool.execute(command="python -c \"import sys; sys.exit(1)\"")
+        assert result.success is False
+        assert result.exit_code == 1
+
+    def test_timeout(self) -> None:
+        """A command that exceeds the timeout returns an error."""
+        from tools.run_shell import RunShell
+
+        tool = RunShell()
+        result = tool.execute(
+            command="python -c \"import time; time.sleep(100)\"",
+            timeout=1,
+        )
+        assert result.success is False
+        assert result.error is not None
+        assert "timed out" in result.error.lower()
+
+    def test_with_cwd(self, tmp_path: Path) -> None:
+        """The cwd parameter changes the working directory."""
+        from tools.run_shell import RunShell
+
+        tool = RunShell()
+        # Create a file in tmp_path, then verify it's visible from that cwd
+        marker = tmp_path / "marker.txt"
+        marker.write_text("present", encoding="utf-8")
+
+        result = tool.execute(
+            command="python -c \"import os; print(os.getcwd())\"",
+            cwd=str(tmp_path),
+        )
+        assert result.success is True
+        # The output should contain the tmp_path (or something close to it)
+        assert str(tmp_path) in result.output
+
+    def test_command_is_required(self) -> None:
+        """Empty command returns an error."""
+        from tools.run_shell import RunShell
+
+        tool = RunShell()
+        result = tool.execute(command="")
+        assert result.success is False
+        assert result.exit_code == 1
+        assert "required" in result.error

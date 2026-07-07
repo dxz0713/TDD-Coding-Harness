@@ -22,6 +22,7 @@ class LLMConfig(BaseModel):
 
     name: str = "mock"
     model: str = "gpt-4o"
+    base_url: str | None = None
     temperature: float = 0.0
     max_tokens: int = 4096
     timeout: int = 30  # seconds

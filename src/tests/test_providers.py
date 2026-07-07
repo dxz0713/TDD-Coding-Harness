@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from harness.models import LLMResponse, Message, ToolCall
+from harness.models import LLMResponse, Message, ToolCall, ToolDef
 from providers.base import LLMAuthError, LLMProvider, LLMRateLimitError, LLMTimeoutError
 from providers.factory import ProviderFactory
 from providers.mock import MockProvider
@@ -184,7 +184,12 @@ class TestMockProviderBuilders:
 class _DummyProvider(LLMProvider):
     """Minimal concrete provider for factory tests."""
 
-    def generate(self, messages: list[Message]) -> LLMResponse:
+    def generate(
+        self,
+        messages: list[Message],
+        tools: list[ToolDef] | None = None,
+        config: Any | None = None,
+    ) -> LLMResponse:
         return LLMResponse(content="dummy")
 
 
@@ -274,3 +279,79 @@ class TestProviderFactoryIntegration:
         provider.preset_responses["hello"] = LLMResponse(content="world")
         resp = provider.generate([Message(role="user", content="hello")])
         assert resp.content == "world"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# OpenAICompatibleProvider (T5)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestOpenAICompatibleProvider:
+    """OpenAICompatibleProvider construction and utility methods."""
+
+    def test_constructs_without_api_key(self) -> None:
+        """Provider can be constructed without an explicit API key (reads from env)."""
+        from providers.openai_compat import OpenAICompatibleProvider
+
+        provider = OpenAICompatibleProvider(api_key="test-key")
+        assert provider.client.api_key == "test-key"
+
+    def test_tool_def_conversion(self) -> None:
+        """ToolDef list is correctly converted to OpenAI tool format."""
+        from providers.openai_compat import _to_openai_tool
+
+        tool = ToolDef(
+            name="read_file",
+            description="Read a file from disk",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+                "required": ["path"],
+            },
+        )
+        result = _to_openai_tool(tool)
+        assert result["type"] == "function"
+        assert result["function"]["name"] == "read_file"
+        assert result["function"]["description"] == "Read a file from disk"
+        assert "path" in result["function"]["parameters"]["properties"]
+
+    def test_message_conversion(self) -> None:
+        """Message is correctly converted to OpenAI message format."""
+        from providers.openai_compat import _to_openai_msg
+
+        msg = Message(role="user", content="Hello")
+        result = _to_openai_msg(msg)
+        assert result == {"role": "user", "content": "Hello"}
+
+    def test_message_with_tool_call_id(self) -> None:
+        """Message with tool_call_id includes it in the output."""
+        from providers.openai_compat import _to_openai_msg
+
+        msg = Message(role="tool", content="Result", tool_call_id="call_1")
+        result = _to_openai_msg(msg)
+        assert result["tool_call_id"] == "call_1"
+
+    def test_provider_registered_in_factory(self) -> None:
+        """ProviderFactory has 'openai' registered."""
+        from providers.openai_compat import OpenAICompatibleProvider
+
+        ProviderFactory._registry = {}
+        ProviderFactory.register("openai", OpenAICompatibleProvider)
+        registered = ProviderFactory.registered_names()
+        assert "openai" in registered
+
+    def test_openai_provider_can_be_created_via_factory(self) -> None:
+        """Factory can create an OpenAICompatibleProvider instance."""
+        from providers.openai_compat import OpenAICompatibleProvider
+
+        ProviderFactory._registry = {}
+        ProviderFactory.register("openai", OpenAICompatibleProvider)
+        from harness.config import LLMConfig
+
+        config = LLMConfig(name="openai")
+        provider = ProviderFactory.create(config)
+        from providers.openai_compat import OpenAICompatibleProvider
+
+        assert isinstance(provider, OpenAICompatibleProvider)
