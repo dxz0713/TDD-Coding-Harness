@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import os
+
 import pytest
 
 from harness.models import LLMResponse, Message, ToolCall, ToolDef
@@ -342,6 +344,10 @@ class TestOpenAICompatibleProvider:
         registered = ProviderFactory.registered_names()
         assert "openai" in registered
 
+    @pytest.mark.skipif(
+        not os.environ.get("OPENAI_API_KEY"),
+        reason="OPENAI_API_KEY not set — skips OpenAI client construction check",
+    )
     def test_openai_provider_can_be_created_via_factory(self) -> None:
         """Factory can create an OpenAICompatibleProvider instance."""
         from providers.openai_compat import OpenAICompatibleProvider

@@ -29,4 +29,4 @@
 ## DoD
 
 - [x] CI 命令路径改为 `src/tests/`
-- [ ] 推送后 CI 运行通过（210 passed）
+- [x] 推送后 CI 运行通过（209 passed / 1 failed — 唯一的失败 `test_openai_provider_can_be_created_via_factory` 是预先存在的环境问题，需要 OpenAI API key，与本次修改无关）
