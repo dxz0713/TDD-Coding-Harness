@@ -12,6 +12,7 @@ without a real API connection.
 
 from __future__ import annotations
 
+from feedback.engine import FeedbackEngine
 from harness.config import Config, GuardrailConfig, LoopConfig
 from harness.context import ContextManager
 from harness.guardrail import Guardrail
@@ -98,6 +99,7 @@ class TestHarnessLoop:
             guardrail=guardrail,
             context_manager=cm,
             stop_decision=sd,
+            feedback_engine=FeedbackEngine(),
             config=config,
         )
 

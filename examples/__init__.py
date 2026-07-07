@@ -1,0 +1,1 @@
+"""TDD Coding Harness — Examples package."""

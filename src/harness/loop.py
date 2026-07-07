@@ -2,11 +2,15 @@
 
 HarnessLoop is the central orchestrator.  It owns the run loop but
 delegates every concrete concern (LLM calls, tool execution, guardrail
-checks, context management, stop decisions) to injected dependencies.
+checks, context management, stop decisions, feedback analysis) to
+injected dependencies.
 """
 
 from __future__ import annotations
 
+import logging
+
+from feedback.engine import FeedbackEngine
 from harness.config import Config
 from harness.context import ContextManager
 from harness.guardrail import Guardrail
@@ -15,6 +19,8 @@ from harness.models import Context, LLMResponse, RunResult, ToolCall, ToolDef
 from harness.stop_condition import AutonomousStopDecision
 from providers.base import LLMProvider
 from tools.dispatcher import ToolDispatcher
+
+logger = logging.getLogger(__name__)
 
 
 class HarnessLoop:
@@ -39,6 +45,7 @@ class HarnessLoop:
         guardrail: Guardrail,
         context_manager: ContextManager,
         stop_decision: AutonomousStopDecision,
+        feedback_engine: FeedbackEngine,
         memory_store: MemoryStore | None = None,
         config: Config | None = None,
     ) -> None:
@@ -50,6 +57,7 @@ class HarnessLoop:
             guardrail: Checks tool calls for dangerous commands.
             context_manager: Builds and updates the conversation context.
             stop_decision: Evaluates whether the loop should stop.
+            feedback_engine: Analyzes test results and produces feedback.
             memory_store: Optional cross-session memory store.
             config: Optional harness configuration.
         """
@@ -58,6 +66,7 @@ class HarnessLoop:
         self._guardrail = guardrail
         self._context_manager = context_manager
         self._stop_decision = stop_decision
+        self._feedback_engine = feedback_engine
         self._memory_store = memory_store
         self._config = config
 
@@ -109,11 +118,14 @@ class HarnessLoop:
 
                 # ── Feedback (test-command output) ─────────────────
                 if result.exit_code is not None:
-                    # TODO(T18): Integrate FeedbackEngine.analyze()
-                    # feedback = self.feedback_engine.analyze(result, ctx)
-                    # if feedback:
-                    #     ctx = self._context_manager.append_feedback(ctx, feedback)
-                    pass
+                    feedback = self._feedback_engine.analyze(result)
+                    if feedback is not None:
+                        logger.info(
+                            "Feedback generated: %s — %s",
+                            feedback.failure_type.value,
+                            feedback.summary,
+                        )
+                        ctx = self._context_manager.append_feedback(ctx, feedback)
 
             # ── Stop check after processing all tool calls ─────────
             decision = self._stop_decision.should_stop(ctx)
