@@ -1,99 +1,212 @@
 # TDD Coding Harness
 
-A teaching-oriented **Coding Agent Harness** that wraps an LLM into a programmable code-execution unit, with a focus on **test-driven feedback cycles**.
+一个教学导向的 **Coding Agent Harness**。它把 LLM 包装成可执行代码任务的工程系统，重点展示：主循环、工具分发、治理护栏、上下文、记忆、配置，以及基于测试结果的反馈修复闭环。
 
-> **Course:** AI4SE Final Project — Category A (Coding Agent Harness)
+> **课程：** AI4SE 期末项目 · A 类 · Coding Agent Harness
 >
-> **Primary Contribution:** Feedback Engine (extensible feedback-loop engine)
+> **主要贡献：** Feedback Engine，可扩展的测试反馈分析与修复提示生成机制
 
-## CI Status
+## CI 状态
 
 ![CI](https://github.com/dxz0713/TDD-Coding-Harness/actions/workflows/ci.yml/badge.svg)
 
 ![CI Pass Screenshot](CI_PASS.png)
-*CI 最后一次执行结果（2026-07-08）*
 
-## Quick Start
+*CI 最后一次执行结果截图：2026-07-08*
 
-### Prerequisites
+## 快速开始
+
+### 环境要求
 
 - Python 3.12+
 - pip
+- 可选：Docker Desktop / Docker Engine
 
-### Install
+### 安装
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-### Run
+### 离线冒烟测试
 
 ```bash
-tdd-harness run "编写一个计算斐波那契数列的函数"
+tdd-harness --help
+tdd-harness demo
 ```
 
-### Run Tests
+### 运行真实 API 任务
+
+使用 OpenAI-compatible API 时，通过环境变量提供 API Key，不要写入仓库文件。
+
+Linux / macOS:
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+tdd-harness run "编写一个计算斐波那契数列的函数" --provider openai --model deepseek-v4-pro
+```
+
+PowerShell:
+
+```powershell
+$env:OPENAI_API_KEY = "your-api-key"
+tdd-harness run "编写一个计算斐波那契数列的函数" --provider openai --model deepseek-v4-pro
+```
+
+课程提供的 OpenAI-compatible endpoint 可通过本地配置文件使用：
+
+```powershell
+@"
+version: 1
+
+provider:
+  name: openai
+  model: deepseek-v4-pro
+  base_url: https://njusehub.info/v1
+  temperature: 0.0
+  max_tokens: 4096
+  timeout: 60
+
+loop:
+  max_iterations: 15
+  workspace: ./workspace
+
+guardrail:
+  enabled: true
+  block_list: []
+
+memory:
+  enabled: true
+  path: output/memory.json
+"@ | Set-Content -Encoding UTF8 config.local.yaml
+
+tdd-harness run "编写一个计算斐波那契数列的函数" --config config.local.yaml
+```
+
+`config.local.yaml` 已被 `.gitignore` 排除，不会提交。
+
+## 最终验证结果
+
+### 单元测试
 
 ```bash
 pytest tests/ -v
 ```
 
-### Docker
+本地最终结果（2026-07-09）：
+
+```text
+213 passed, 1 skipped
+```
+
+### 真实 API 端到端验证
+
+真实 API 调用已完成一次 Fibonacci 任务：
+
+```text
+SUCCESS - All tests passed
+Iterations: 9
+Generated artifacts: workspace/fib.py, workspace/test_fib.py
+Captured CLI log: workspace/log.txt
+```
+
+`workspace/` 是本次真实 API 调用证据目录：
+
+- `workspace/fib.py`：LLM 生成并修复后的 Fibonacci 实现
+- `workspace/test_fib.py`：LLM 生成的 pytest 测试
+- `workspace/log.txt`：复制保存的命令行输出
+
+### Docker 验证
 
 ```bash
 docker build -t tdd-harness .
 docker run --rm tdd-harness --help
 ```
 
-## Architecture
+本地最终结果（2026-07-09）：
 
-The system follows a linear pipeline architecture with a feedback loop:
-
+```text
+docker build -t tdd-harness .        -> success
+docker run --rm tdd-harness --help   -> success
 ```
-CLI (typer) → Config (YAML + overrides) → Provider Factory → Main Loop → Tools / Feedback
+
+镜像中包含 `config.yaml`，因此容器内可以解析默认 CLI 配置。容器内 mock run 会以 `FAILURE - LLM returned no tool calls` 退出，这是默认 `MockProvider` 没有工具调用时的预期行为。
+
+### Web UI / Vercel
+
+项目包含一个极简 FastAPI Web UI，位于 `webui/`，用于 Vercel 部署演示。Web UI 只是 CLI 的薄包装，不替代自实现的 harness 主循环。
+
+本地 WebUI 健康检查（2026-07-09）：
+
+```text
+GET /      -> 200
+POST /run  -> 200
 ```
 
-1. **CLI Layer** — `harness/cli.py` uses `typer` to parse user commands (`run`, `demo`). CLI arguments override config-file values.
+Vercel 相关修复：
 
-2. **Configuration Layer** — `harness/config.py` loads `config.yaml` using Pydantic models. Supports deep-merge overrides from CLI flags (`--provider`, `--model`). Priority: CLI arguments > config file > built-in defaults.
+- `pyproject.toml` 声明 `[tool.vercel] entrypoint = "webui.app:app"`
+- `requirements.txt` / `pyproject.toml` 补齐 FastAPI 运行依赖
+- 补充 `python-multipart`，修复 FastAPI 表单路由导入时报错导致的 500
+- WebUI 子进程显式传入项目根 `config.yaml`
 
-3. **Provider Factory** — `providers/factory.py` implements a registry pattern. Providers register themselves by name; the factory creates the correct provider from a config string. Built-in: `MockProvider` (offline testing) and `OpenAICompatibleProvider` (OpenAI / DeepSeek / Qwen compatible APIs).
+若线上旧部署仍返回 500，重新部署即可触发 GitHub 绑定的 Vercel 构建。
 
-4. **Main Loop** — `harness/loop.py` (`HarnessLoop`) orchestrates the TDD cycle:
-   - Build context → LLM generate → Parse tool calls → Guardrail check → Dispatch tool → Analyze feedback → Update context → Repeat or stop
-   - The loop delegates every concern to injected dependencies (provider, dispatcher, guardrail, context manager, stop decision, feedback engine).
+## 架构说明
 
-5. **Tool Dispatcher** — `tools/dispatcher.py` routes LLM-requested tool calls to registered `BaseTool` implementations. Built-in tools: `ReadFile`, `WriteFile`, `RunShell`. A virtual `finish` tool signals completion.
+整体流程：
 
-6. **Guardrail** — `harness/guardrail.py` intercepts dangerous shell commands (`rm -rf /`, fork bombs, etc.) before execution. Supports allowlists, blocklists, and regex-based danger patterns.
+```text
+CLI -> Config -> ProviderFactory -> HarnessLoop -> Tools / Feedback / Guardrail
+```
 
-7. **Feedback Engine** — `feedback/` package that implements the core contribution:
-   - `Collector` — normalises raw test output (strips ANSI, extracts test names)
-   - `FailureAnalyzer` — classifies failures into 7 types (SyntaxError, AssertionError, ImportError, RuntimeError, Timeout, TestFailure, Unknown)
-   - `RepairStrategy` — per-failure-type repair prompt generation
-   - `FeedbackEngine` — connects Collector → Analyzer → Strategy into one pipeline
+1. **CLI 层**：`harness/cli.py` 使用 Typer 实现 `run` 与 `demo` 命令。CLI 参数优先级高于配置文件。
+2. **配置层**：`harness/config.py` 使用 Pydantic 加载 `config.yaml`，支持 `--provider`、`--model` 覆盖。
+3. **Provider 层**：`providers/factory.py` 实现注册表工厂。内置 `MockProvider` 和 `OpenAICompatibleProvider`。
+4. **主循环**：`harness/loop.py` 实现核心 agent loop：构建上下文、调用 LLM、解析工具调用、护栏检查、工具执行、反馈分析、停机判断。
+5. **工具分发**：`tools/dispatcher.py` 将 LLM 的工具调用路由到 `ReadFile`、`WriteFile`、`RunShell`。
+6. **治理护栏**：`harness/guardrail.py` 在 shell 命令执行前拦截危险动作，如 `rm -rf /`、fork bomb、破坏性数据库命令等。
+7. **反馈引擎**：`feedback/` 是主要贡献，负责从测试输出中提取客观反馈并生成修复提示。
+8. **上下文与记忆**：`harness/context.py` 管理消息上下文，`harness/memory.py` 提供 JSON 文件形式的跨会话记忆。
 
-8. **Context & Memory** — `harness/context.py` builds and tracks conversation context; `harness/memory.py` provides cross-session persistent memory.
+## Feedback Engine
 
-## Configuration
+Feedback Engine 的流水线：
 
-The system uses a YAML configuration file (`config.yaml` by default) with Pydantic-based validation.
+```text
+ToolResult -> Collector -> FailureAnalyzer -> RepairStrategy -> Feedback
+```
+
+它支持 7 类失败分析：
+
+- `SyntaxError`
+- `AssertionError`
+- `ImportError`
+- `RuntimeError`
+- `Timeout`
+- `TestFailure`
+- `Unknown`
+
+这些机制都可以在 MockProvider 下用确定性单元测试验证，满足课程要求中“机制必须是代码，而不是提示词”的约束。
+
+## 配置说明
+
+默认配置文件为 `config.yaml`：
 
 ```yaml
-# config.yaml — Default configuration
 version: 1
 
 provider:
-  name: mock          # mock | openai
-  model: gpt-4o
-  base_url: https://api.openai.com/v1
+  name: mock
+  model: deepseek-v4-flash
+  base_url: https://njusehub.info/v1
   temperature: 0.0
   max_tokens: 4096
   timeout: 30
 
 loop:
-  max_iterations: 5
-  workspace: .
+  max_iterations: 15
+  workspace: ./workspace
 
 guardrail:
   enabled: true
@@ -104,132 +217,105 @@ memory:
   path: output/memory.json
 ```
 
-**Configuration priority** (high → low):
-1. CLI arguments (`--provider`, `--model`)
-2. Config file (`config.yaml`)
-3. Built-in defaults (hardcoded in `Config` Pydantic model)
+配置优先级：
 
-## Provider Switching
+1. CLI 参数，如 `--provider`、`--model`
+2. 配置文件，如 `config.yaml` / `config.local.yaml`
+3. Pydantic 模型中的内置默认值
 
-Switch between LLM providers by changing the configuration — no code changes needed.
+Provider 切换示例：
 
 ```bash
-# Use Mock provider (offline testing, no API key needed)
+# 离线 mock
 tdd-harness run "task description" --provider mock
 
-# Use OpenAI-compatible API (OpenAI, DeepSeek, Qwen, etc.)
+# OpenAI-compatible API
 tdd-harness run "task description" --provider openai --model deepseek-v4-pro
 
-# Use a config file with custom provider settings
-tdd-harness run "task description" --config my-config.yaml
+# 自定义配置文件
+tdd-harness run "task description" --config config.local.yaml
 ```
 
-When using the `openai` provider, set your API key via the `OPENAI_API_KEY` environment variable (or a `.env` file).
+## 机制演示
 
-## Demo
-
-Three demonstration scripts are included in the `examples/` directory:
+`examples/` 目录包含三个确定性演示脚本：
 
 ```bash
-# Guardrail demonstration — shows dangerous command interception
+# 治理护栏：危险命令拦截
 python examples/demo_guardrail.py
 
-# Feedback classification demonstration — shows 7 failure-type classifications
+# 反馈分类：7 类失败类型识别
 python examples/demo_feedback.py
 
-# Full TDD autonomous repair cycle — MockProvider-based end-to-end demo
+# 完整 TDD 闭环：MockProvider 下的自主修复周期
 python examples/demo_autonomous_repair.py
 ```
 
-## Project Structure
+## 项目结构
 
-```
+```text
 ├── src/
-│   ├── cli.py                    # CLI entry point (typer)
-│   ├── feedback/                 # Feedback Engine ★ core contribution
-│   │   ├── analyzer.py           #   Collector + FailureAnalyzer
-│   │   ├── engine.py             #   FeedbackEngine pipeline
-│   │   └── strategies.py         #   Per-failure-type repair strategies
-│   ├── harness/                  # Core harness runtime
-│   │   ├── cli.py                #   CLI commands (run, demo)
-│   │   ├── config.py             #   YAML config + Pydantic models
-│   │   ├── context.py            #   Conversation context manager
-│   │   ├── guardrail.py          #   Dangerous command interception
-│   │   ├── loop.py               #   Main TDD orchestration loop
-│   │   ├── memory.py             #   Cross-session memory store
-│   │   ├── models.py             #   Shared Pydantic data models
-│   │   └── stop_condition.py     #   Autonomous stop decision logic
-│   ├── providers/                # LLM provider abstraction
-│   │   ├── base.py               #   Abstract LLMProvider base class
-│   │   ├── factory.py            #   Registry-based provider factory
-│   │   ├── mock.py               #   Mock provider (offline testing)
-│   │   └── openai_compat.py      #   OpenAI-compatible API provider
-│   ├── tests/                    # Unit tests (210+ tests)
-│   │   ├── test_analyzer.py
-│   │   ├── test_cli.py
-│   │   ├── test_config.py
-│   │   ├── test_context.py
-│   │   ├── test_feedback_engine.py
-│   │   ├── test_guardrail.py
-│   │   ├── test_loop.py
-│   │   ├── test_loop_integration.py
-│   │   ├── test_memory.py
-│   │   ├── test_models.py
-│   │   ├── test_providers.py
-│   │   ├── test_stop_condition.py
-│   │   └── test_tools.py
-│   └── tools/                    # Tool implementations
-│       ├── base.py               #   BaseTool abstract class
-│       ├── dispatcher.py         #   Tool call dispatcher
-│       ├── read_file.py          #   Read file tool
-│       ├── run_shell.py          #   Shell command tool
-│       └── write_file.py         #   Write file tool
-├── examples/                     # Demo scripts
-│   ├── demo_guardrail.py
-│   ├── demo_feedback.py
-│   └── demo_autonomous_repair.py
-├── docs/                         # Specification and planning
-│   ├── SPEC.md
-│   ├── SPEC_PROCESS.md
-│   └── PLAN.md
-├── config.yaml                   # Default configuration
-├── Dockerfile                    # Container build
-├── pyproject.toml                # Project metadata and dependencies
-└── README.md                     # This file
+│   ├── feedback/                 # Feedback Engine，核心贡献
+│   ├── harness/                  # Harness 主循环、配置、上下文、护栏、记忆
+│   ├── providers/                # LLM Provider 抽象、Mock、OpenAI-compatible 实现
+│   ├── tests/                    # 源码侧测试套件
+│   └── tools/                    # read_file / write_file / run_shell 工具
+├── examples/                     # 机制演示脚本
+├── webui/                        # FastAPI Web UI，用于 Vercel 部署演示
+├── workspace/                    # 真实 API 调用证据目录
+│   ├── fib.py
+│   ├── test_fib.py
+│   └── log.txt
+├── tests/                        # 顶层 pytest tests/ 兼容入口
+├── docs/                         # SPEC、PLAN、过程文档
+├── plan/                         # 课程要求与项目计划
+├── config.yaml                   # 默认配置
+├── Dockerfile                    # Docker 构建文件
+├── pyproject.toml                # 项目元数据、依赖、pytest/Vercel 配置
+├── AGENT_LOG.md                  # 开发与验证日志
+├── REFLECTION.md                 # 项目反思
+└── README.md
 ```
 
-## Design Decisions
+## 设计决策
 
-### Why not LangGraph / CrewAI / AutoGen?
+### 为什么不使用 LangGraph / CrewAI / AutoGen？
 
-This project intentionally implements its own Harness Loop, Provider abstraction, Tool Dispatcher, Feedback Engine, and Guardrail — instead of using existing orchestration frameworks. This is a **course requirement** (AI4SE Category A): the harness kernel must be self-implemented code, not a configuration layer on top of an existing agent framework. The goal is to demonstrate understanding of the engineering underneath these tools, not to build on top of them.
+课程要求交付的是自己编码实现的 harness 内核，而不是基于现成 agent 编排框架的配置层。因此本项目自行实现：
 
-### Why not a GUI?
+- agent 主循环
+- Provider 抽象
+- Tool Dispatcher
+- Guardrail
+- Feedback Engine
+- Stop Condition
+- Memory Store
 
-The project is scoped as a CLI tool for developers. A GUI or IDE plugin is explicitly out of scope for the MVP.
+### 为什么 Web UI 很薄？
 
-## Security
+核心交付物是 CLI harness。Web UI 只作为部署和展示入口，最终仍调用同一套 CLI 与 harness 代码，不引入第二套 agent runtime。
 
-- **API Keys** are configured via the `OPENAI_API_KEY` environment variable (or `.env` file). They are **never hardcoded** in source code.
-- The `.env` file is excluded by `.gitignore` to prevent accidental credential leaks.
-- The **Guardrail** module (`harness/guardrail.py`) intercepts dangerous shell commands (`rm -rf /`, fork bombs, etc.) before execution. Users can extend the blocklist via `config.yaml`.
-- Built-in safe command allowlist ensures common development commands (`pytest`, `python`, `pip`, `ls`, `git`, etc.) are always permitted.
+## 安全说明
 
-### API Key 配置方式（按安全等级排序）
+- API Key 通过 `OPENAI_API_KEY` 环境变量或本地 `.env` 提供。
+- `.env`、`config.local.yaml` 被 `.gitignore` 排除。
+- 不要把真实 API Key 写入源码、文档或日志。
+- `workspace/log.txt` 已检查，不包含真实 API Key。
+- Guardrail 会在执行 shell 前拦截危险命令。
 
-| 等级 | 方式 | 说明 | 安全性 |
-|------|------|------|--------|
-| 🥇 推荐 | 系统钥匙串 | 使用 `keyring` 接入 Windows Credential Manager / macOS Keychain | ✅ 加密存储，进程隔离 |
-| 🥈 默认 | `.env` 文件 | `OPENAI_API_KEY=sk-...` 写入 `.env`，`python-dotenv` 加载 | ⚠️ 明文文件，需确保 `.gitignore` 排除 |
-| 🥉 备选 | 环境变量 | 通过 `export OPENAI_API_KEY=sk-...` 或 Docker `-e` 传入 | ⚠️ 明文，shell history 可见 |
-| ❌ 禁止 | 硬编码 | 不得在源码中写入 Key | 🔴 会导致凭据泄露 |
+API Key 配置方式：
 
-> **首次运行引导：** 当检测到未配置 API Key 时，运行 `tdd-harness init` 会提示你输入 Key（输入内容不回显），自动存入系统钥匙串。
+| 等级 | 方式 | 说明 |
+|------|------|------|
+| 推荐 | 系统钥匙串 | 可通过 `keyring` 接入 Windows Credential Manager / macOS Keychain |
+| 常用 | `.env` 文件 | 明文文件，必须确认被 `.gitignore` 排除 |
+| 临时 | 环境变量 | 适合一次性验证，如 PowerShell `$env:OPENAI_API_KEY="..."` |
+| 禁止 | 硬编码 | 不得在源码、配置或提交记录中写入真实 Key |
 
-## Known Issues / Limitations
+## 已知限制
 
-- **Provider support** — Currently supports only OpenAI-compatible APIs (OpenAI, DeepSeek, Qwen, etc.). Anthropic Claude provider is reserved for future implementation.
-- **Test framework** — The default test framework is pytest. Other frameworks (unittest, doctest) are not explicitly handled by the FailureAnalyzer.
-- **Cross-platform** — Windows and Linux shell command differences may affect the `RunShell` tool (e.g., path separators, environment variables).
-- **No GUI / IDE plugin** — The harness is CLI-only. No VS Code extension, JetBrains plugin, or web UI is provided.
-- **Memory persistence** — Cross-session memory is file-based (JSON). For production use, a database-backed store would be more appropriate.
+- 目前只实现 OpenAI-compatible Provider，未实现 Anthropic Claude Provider。
+- Feedback Analyzer 主要针对 pytest 输出，其他测试框架未做专门适配。
+- Memory 是 JSON 文件实现，生产级场景应替换为数据库或向量检索存储。
+- Windows / Linux shell 差异可能影响 `RunShell` 的具体命令行为。
+- Web UI 是展示层，不提供复杂任务管理、权限控制或多用户隔离。

@@ -1,8 +1,8 @@
 # AGENT_LOG
 
 > **Project:** TDD Coding Harness — AI4SE Final Project Category A
-> **Date:** 2026-07-07
-> **Total Tasks:** T1–T19 (19 tasks, 23 commits)
+> **Date:** 2026-07-07 to 2026-07-09
+> **Total Tasks:** T1–T19 plus final hardening/verification
 
 ---
 
@@ -218,15 +218,40 @@
 
 ---
 
+## Final Hardening — 测试、真实 API、Vercel、Docker 收尾
+
+- **Date:** 2026-07-09 02:19 +08:00
+- **Agent:** Codex
+- **Files:** `.gitignore`, `Dockerfile`, `README.md`, `pyproject.toml`, `requirements.txt`, `src/harness/cli.py`, `src/harness/loop.py`, `tests/test_src_suite.py`, `webui/app.py`, `webui/requirements.txt`
+- **Decision:** 修复最终交付前的运行路径问题，而不改变核心 harness 架构。
+- **Reason:** `pytest tests/ -v` 需要在受限 Windows 环境稳定运行；CLI mock 路径存在无工具调用死循环；Vercel WebUI 500 需要定位；真实 API 和 Docker 需要交付前验证。
+- **Result:**
+  - `pytest tests/ -v` 通过：`213 passed, 1 skipped`
+  - 修复 `HarnessLoop` 文本但无 tool call 时无限循环的问题，改为确定性失败退出
+  - CLI 输出改为 ASCII，避免 Windows GBK 下 `UnicodeEncodeError`
+  - 新增 `tests/test_src_suite.py`，兼容顶层 `pytest tests/ -v`
+  - pytest 临时目录固定为 `.pytest_tmp`，并加入 `.gitignore`
+  - WebUI 本地健康检查通过：`GET / -> 200`，`POST /run -> 200`
+  - 补齐 Vercel/FastAPI 依赖：`fastapi`、`jinja2`、`uvicorn`、`python-multipart`
+  - 配置 Vercel 入口：`[tool.vercel] entrypoint = "webui.app:app"`
+  - 真实 API 调用通过：`SUCCESS - All tests passed`，`Iterations: 9`
+  - 真实 API 运行生成产物：`workspace/fib.py`、`workspace/test_fib.py`
+  - 真实 API 命令行输出已保存为证据日志：`workspace/log.txt`
+  - Docker 验证通过：`docker build -t tdd-harness .` 成功，`docker run --rm tdd-harness --help` 成功
+  - Dockerfile 补充复制 `config.yaml`，容器内默认 CLI 配置可解析
+- **Reflection:** 最终问题集中在运行环境边界和交付命令一致性，而不是核心机制缺失。将测试入口、临时目录、WebUI 依赖和 CLI 输出做成确定性行为后，项目更适合在评分环境和不同机器上复现。
+
+---
+
 ## 汇总统计
 
 | 指标 | 数值 |
 |------|------|
-| 总 Task 数 | 19 |
+| 总 Task 数 | 19 + final hardening |
 | 总 Commits | 23 |
 | 源文件数 | ~40 Python files |
-| 测试文件数 | 13 test files |
-| 总测试数 | 210+ |
+| 测试文件数 | 13 source test files + 1 compatibility entry |
+| 总测试数 | 214 collected (`213 passed, 1 skipped`) |
 | Demo 脚本 | 3 |
 
 ---

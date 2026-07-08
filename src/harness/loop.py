@@ -85,12 +85,20 @@ class HarnessLoop:
         ctx: Context = self._context_manager.build(task, tool_defs)
 
         while True:
-            logger.info("Iteration %d — sending request to LLM …", ctx.iteration)
-            response: LLMResponse = self._provider.generate(
-                ctx.messages,
-                tool_defs,
-                self._config.provider if self._config else None,
-            )
+            logger.info("Iteration %d - sending request to LLM...", ctx.iteration)
+            try:
+                response: LLMResponse = self._provider.generate(
+                    ctx.messages,
+                    tool_defs,
+                    self._config.provider if self._config else None,
+                )
+            except Exception as exc:
+                return RunResult(
+                    success=False,
+                    iterations=ctx.iteration,
+                    artifacts=[],
+                    error=f"LLM provider error: {exc}",
+                )
 
             # ── Empty response — LLM has nothing to say or do ──────────
             if not response.tool_calls and not response.content.strip():
@@ -99,6 +107,15 @@ class HarnessLoop:
                     iterations=ctx.iteration,
                     artifacts=[],
                     error="LLM returned empty response",
+                )
+
+            # ── Text-only response — avoid spinning forever ────────────
+            if not response.tool_calls:
+                return RunResult(
+                    success=False,
+                    iterations=ctx.iteration,
+                    artifacts=[],
+                    error="LLM returned no tool calls",
                 )
 
             for tool_call in response.tool_calls:
@@ -131,7 +148,7 @@ class HarnessLoop:
                 # ── Dispatch & append result ───────────────────────
                 result = self._dispatcher.dispatch(tool_call)
                 logger.info(
-                    "  → exit_code=%s, output=%.120s",
+                    "  -> exit_code=%s, output=%.120s",
                     result.exit_code,
                     result.output or result.error or "",
                 )
@@ -142,7 +159,7 @@ class HarnessLoop:
                     feedback = self._feedback_engine.analyze(result)
                     if feedback is not None:
                         logger.info(
-                            "Feedback generated: %s — %s",
+                            "Feedback generated: %s - %s",
                             feedback.failure_type.value,
                             feedback.summary,
                         )

@@ -36,11 +36,11 @@ output/reports/
 
 # === Testing ===
 .pytest_cache/
+.pytest_tmp/
 .cache/
 .coverage
 htmlcov/
 coverage.xml
-.pytest_cache/
 
 # === Claude Code ===
 .claude/memory/

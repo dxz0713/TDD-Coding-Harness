@@ -30,7 +30,7 @@ import harness  # noqa: F401
 # ── Default tool dispatcher ───────────────────────────────────────────
 from harness import get_default_dispatcher
 
-app = typer.Typer(help="TDD Coding Harness — CLI")
+app = typer.Typer(help="TDD Coding Harness - CLI")
 
 # Enable harness logging so iteration progress is visible.
 logging.basicConfig(
@@ -63,7 +63,7 @@ _BUILTIN_TOOL_DEFS: list[ToolDef] = [
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
-    """TDD Coding Harness — AI-Enabled Software Engineer Bootcamp Final Project."""
+    """TDD Coding Harness - AI-Enabled Software Engineer Bootcamp Final Project."""
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
 
@@ -119,16 +119,16 @@ def run(
 
     cfg = cfg.with_overrides(provider_name=provider, provider_model=model)
 
-    # ── 2. Create provider ─────────────────────────────────────────────
-    try:
-        provider_instance = ProviderFactory.create(cfg.provider)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
-
     typer.echo(f"  Provider: {cfg.provider.name}")
     typer.echo(f"  Model:    {cfg.provider.model}")
     typer.echo(f"  Config:   {config}")
+
+    # ── 2. Create provider ─────────────────────────────────────────────
+    try:
+        provider_instance = ProviderFactory.create(cfg.provider)
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     # ── 3. Build harness dependencies ──────────────────────────────────
     dispatcher = get_default_dispatcher()
@@ -156,9 +156,9 @@ def run(
     typer.echo()
     typer.echo("=" * 60)
     if result.success:
-        typer.echo("  ✅ SUCCESS — All tests passed")
+        typer.echo("  SUCCESS - All tests passed")
     else:
-        typer.echo(f"  ❌ FAILURE — {result.error or 'Unknown error'}")
+        typer.echo(f"  FAILURE - {result.error or 'Unknown error'}")
     typer.echo(f"  Iterations: {result.iterations}")
     typer.echo("=" * 60)
 

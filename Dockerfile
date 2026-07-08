@@ -4,6 +4,7 @@ WORKDIR /workspace
 
 # Copy pyproject.toml and source code
 COPY pyproject.toml .
+COPY config.yaml .
 COPY src/ src/
 
 # Install dependencies and project

@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="TDD Coding Harness WebUI")
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
@@ -34,7 +35,15 @@ async def run_task(
     """Execute a harness task and show the output."""
     with tempfile.TemporaryDirectory() as tmp:
         result = subprocess.run(
-            ["tdd-harness", "run", task, "--provider", provider],
+            [
+                "tdd-harness",
+                "run",
+                task,
+                "--provider",
+                provider,
+                "--config",
+                str(PROJECT_ROOT / "config.yaml"),
+            ],
             capture_output=True,
             text=True,
             cwd=tmp,
