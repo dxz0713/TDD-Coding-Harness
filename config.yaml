@@ -3,9 +3,9 @@
 version: 1
 
 provider:
-  name: openai          # mock | openai
-  model: deepseek-v4-flash
-  base_url: https://njusehub.info/v1
+  name: mock          # mock | openai
+  model: gpt-4o
+  base_url: https://api.openai.com/v1
   temperature: 0.0
   max_tokens: 4096
   timeout: 30
