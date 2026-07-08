@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "webui/app.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "webui/app.py"
+    }
+  ]
+}
