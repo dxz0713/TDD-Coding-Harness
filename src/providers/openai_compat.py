@@ -6,6 +6,7 @@ including OpenAI, DeepSeek, Qwen, and others.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -109,7 +110,7 @@ class OpenAICompatibleProvider(LLMProvider):
                     ToolCall(
                         id=tc.id,
                         name=tc.function.name,
-                        arguments=tc.function.arguments,  # JSON string → dict
+                        arguments=json.loads(tc.function.arguments),  # JSON string → dict
                     )
                 )
             # Map finish_reason to standard values

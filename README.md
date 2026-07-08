@@ -6,6 +6,13 @@ A teaching-oriented **Coding Agent Harness** that wraps an LLM into a programmab
 >
 > **Primary Contribution:** Feedback Engine (extensible feedback-loop engine)
 
+## CI Status
+
+![CI](https://github.com/dxz0713/TDD-Coding-Harness/actions/workflows/ci.yml/badge.svg)
+
+![CI Pass Screenshot](CI_PASS.png)
+*CI 最后一次执行结果（2026-07-08）*
+
 ## Quick Start
 
 ### Prerequisites
@@ -207,6 +214,17 @@ The project is scoped as a CLI tool for developers. A GUI or IDE plugin is expli
 - The `.env` file is excluded by `.gitignore` to prevent accidental credential leaks.
 - The **Guardrail** module (`harness/guardrail.py`) intercepts dangerous shell commands (`rm -rf /`, fork bombs, etc.) before execution. Users can extend the blocklist via `config.yaml`.
 - Built-in safe command allowlist ensures common development commands (`pytest`, `python`, `pip`, `ls`, `git`, etc.) are always permitted.
+
+### API Key 配置方式（按安全等级排序）
+
+| 等级 | 方式 | 说明 | 安全性 |
+|------|------|------|--------|
+| 🥇 推荐 | 系统钥匙串 | 使用 `keyring` 接入 Windows Credential Manager / macOS Keychain | ✅ 加密存储，进程隔离 |
+| 🥈 默认 | `.env` 文件 | `OPENAI_API_KEY=sk-...` 写入 `.env`，`python-dotenv` 加载 | ⚠️ 明文文件，需确保 `.gitignore` 排除 |
+| 🥉 备选 | 环境变量 | 通过 `export OPENAI_API_KEY=sk-...` 或 Docker `-e` 传入 | ⚠️ 明文，shell history 可见 |
+| ❌ 禁止 | 硬编码 | 不得在源码中写入 Key | 🔴 会导致凭据泄露 |
+
+> **首次运行引导：** 当检测到未配置 API Key 时，运行 `tdd-harness init` 会提示你输入 Key（输入内容不回显），自动存入系统钥匙串。
 
 ## Known Issues / Limitations
 

@@ -85,13 +85,29 @@ class HarnessLoop:
         ctx: Context = self._context_manager.build(task, tool_defs)
 
         while True:
+            logger.info("Iteration %d — sending request to LLM …", ctx.iteration)
             response: LLMResponse = self._provider.generate(
                 ctx.messages,
                 tool_defs,
                 self._config.provider if self._config else None,
             )
 
+            # ── Empty response — LLM has nothing to say or do ──────────
+            if not response.tool_calls and not response.content.strip():
+                return RunResult(
+                    success=False,
+                    iterations=ctx.iteration,
+                    artifacts=[],
+                    error="LLM returned empty response",
+                )
+
             for tool_call in response.tool_calls:
+                logger.info(
+                    "Tool call: %s(%s)",
+                    tool_call.name,
+                    tool_call.arguments,
+                )
+
                 # ── Virtual "finish" tool ──────────────────────────
                 if tool_call.name == "finish":
                     decision = self._stop_decision.on_finish(tool_call)
@@ -114,6 +130,11 @@ class HarnessLoop:
 
                 # ── Dispatch & append result ───────────────────────
                 result = self._dispatcher.dispatch(tool_call)
+                logger.info(
+                    "  → exit_code=%s, output=%.120s",
+                    result.exit_code,
+                    result.output or result.error or "",
+                )
                 ctx = self._context_manager.append_tool_result(ctx, tool_call, result)
 
                 # ── Feedback (test-command output) ─────────────────

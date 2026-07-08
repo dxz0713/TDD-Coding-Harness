@@ -209,6 +209,8 @@ Phase 7: Delivery
 - `docker run --rm tdd-harness --help` 显示帮助
 - CI 配置语法正确
 
+**完成状态：** ✅ `d687c24`
+
 ---
 
 ### T2：数据模型 + Config 加载（SP1）
@@ -240,6 +242,8 @@ class ToolResult(BaseModel):
 - ✅ 测试通过
 - ✅ 类型提示完整
 
+**完成状态：** ✅ `d687c24`
+
 ---
 
 ## Phase 2：CLI + Provider（3 个 Task）
@@ -262,6 +266,8 @@ class ToolResult(BaseModel):
 - ✅ 测试通过
 - ✅ `tdd-harness` 命令可运行
 
+**完成状态：** ✅ `0f7247c`
+
 ---
 
 ### T4：LLMProvider 抽象基类 + MockProvider + ProviderFactory（SP2）
@@ -282,6 +288,8 @@ class ToolResult(BaseModel):
 **DoD：**
 - ✅ 测试通过
 - ✅ Factory 可创建全部 Provider 类型
+
+**完成状态：** ✅ `0f7247c`
 
 ---
 
@@ -316,6 +324,8 @@ provider:
 - ✅ 支持 `base_url` 配置
 - ✅ 切换模型仅需修改 `model` 字段，无需改代码
 
+**完成状态：** ✅ `c639657`
+
 ---
 
 ## Phase 3：Tools（4 个 Task）
@@ -346,6 +356,8 @@ dispatcher.register(RunShell())     # 自动读取 RunShell.name = "run_shell"
 - ✅ 测试通过
 - ✅ 类型提示完整
 
+**完成状态：** ✅ `0f7247c`
+
 ---
 
 ### T7：ReadFile 工具（SP1）
@@ -364,6 +376,8 @@ dispatcher.register(RunShell())     # 自动读取 RunShell.name = "run_shell"
 **DoD：**
 - ✅ 测试通过（含边界条件）
 
+**完成状态：** ✅ `c639657`
+
 ---
 
 ### T8：WriteFile 工具（SP1）
@@ -381,6 +395,8 @@ dispatcher.register(RunShell())     # 自动读取 RunShell.name = "run_shell"
 
 **DoD：**
 - ✅ 测试通过（含边界条件）
+
+**完成状态：** ✅ `c639657`
 
 ---
 
@@ -410,6 +426,8 @@ class RunShellInput(BaseModel):
 **DoD：**
 - ✅ 测试通过（含超时边界）
 
+**完成状态：** ✅ `c639657`
+
 ---
 
 ## Phase 4：Core（5 个 Task）
@@ -433,6 +451,8 @@ class RunShellInput(BaseModel):
 
 **DoD：**
 - ✅ 测试通过（含全部危险模式）
+
+**完成状态：** ✅ `95e3918`
 
 ---
 
@@ -478,6 +498,8 @@ def run(self, task, config):
 - ✅ 测试通过
 - ✅ 依赖注入正确
 
+**完成状态：** ✅ `009cb4a`
+
 ---
 
 ### T12：Context 管理（SP2）
@@ -495,6 +517,8 @@ def run(self, task, config):
 **DoD：**
 - ✅ 测试通过
 - ✅ messages 结构正确
+
+**完成状态：** ✅ `95e3918`
 
 ---
 
@@ -523,6 +547,8 @@ class StopDecision(BaseModel):
 **DoD：**
 - ✅ 四种停机条件全部覆盖
 
+**完成状态：** ✅ `95e3918`
+
 ---
 
 ### T14：Memory（SP1）
@@ -542,6 +568,8 @@ class StopDecision(BaseModel):
 **DoD：**
 - ✅ 测试通过
 - ✅ 截断策略正确
+
+**完成状态：** ✅ `95e3918`
 
 ---
 
@@ -565,6 +593,8 @@ class StopDecision(BaseModel):
 **DoD：**
 - ✅ 测试通过
 - ✅ 类型提示完整
+
+**完成状态：** ✅ `99bb011`
 
 ---
 
@@ -593,6 +623,8 @@ class StopDecision(BaseModel):
 **DoD：**
 - ✅ 7 种失败类型全部覆盖
 - ✅ AssertionError 提取预期/实际值
+
+**完成状态：** ✅ `009cb4a`
 
 ---
 
@@ -642,6 +674,8 @@ strategy_map = {
 - ✅ 7 种类型全部有对应策略
 - ✅ 成功结果不产生 Feedback
 
+**完成状态：** ✅ `3a2b89c`
+
 ---
 
 ## Phase 6：Integration（2 个 Task）
@@ -665,6 +699,8 @@ strategy_map = {
 - ✅ 完整闭环可运行
 - ✅ 日志记录完整
 
+**完成状态：** ✅ `d4643d4`
+
 ---
 
 ### T19：机制演示脚本（SP2）
@@ -678,6 +714,8 @@ strategy_map = {
 **DoD：**
 - ✅ 三个脚本可独立运行
 - ✅ 输出确定性结果（不依赖网络）
+
+**完成状态：** ✅ `d4643d4`
 
 ---
 
@@ -701,6 +739,8 @@ strategy_map = {
 **DoD：**
 - ✅ 包含全部必需章节
 - ✅ Key 安全配置方式写清
+
+**完成状态：** ✅ `bb6a695`
 
 ---
 
@@ -726,6 +766,8 @@ strategy_map = {
 - ✅ `pytest tests/` 全部通过
 - ✅ 三个机制演示可运行
 - ✅ AGENT_LOG 完整
+
+**完成状态：** ✅ `bb6a695`
 
 ---
 
