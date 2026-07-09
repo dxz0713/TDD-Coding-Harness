@@ -36,12 +36,13 @@ async def run_task(
     try:
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
-            src_path = str(PROJECT_ROOT / "src")
+            pythonpath_parts = [str(PROJECT_ROOT / "src")]
+            pythonpath_parts.extend(path for path in sys.path if path)
             existing_pythonpath = env.get("PYTHONPATH")
             env["PYTHONPATH"] = (
-                src_path
+                os.pathsep.join(pythonpath_parts)
                 if not existing_pythonpath
-                else f"{src_path}{os.pathsep}{existing_pythonpath}"
+                else os.pathsep.join([*pythonpath_parts, existing_pythonpath])
             )
             result = subprocess.run(
                 [
