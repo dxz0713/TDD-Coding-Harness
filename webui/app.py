@@ -259,11 +259,8 @@ def _render_page(
         textarea {{ width: 100%; min-height: 100px; padding: 0.5rem; font-family: monospace; }}
         input, select {{ width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }}
         label {{ display: block; margin-top: 1rem; font-weight: 600; }}
-        .password-row {{ display: flex; gap: 0.5rem; align-items: end; }}
-        .password-row input {{ flex: 1; }}
         button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }}
         button:hover {{ background: #0055aa; }}
-        button.secondary {{ width: auto; padding: 0.5rem 1rem; background: #555; white-space: nowrap; }}
         a.download {{ display: inline-block; margin: 0.5rem 0 1rem; color: #0066cc; font-weight: 600; }}
         pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; }}
         .artifact {{ margin: 1rem 0; }}
@@ -292,25 +289,13 @@ def _render_page(
             <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
         </label>
         <label>API Key (real API mode only, not stored):
-            <div class="password-row">
-                <input id="api-key" name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
-                <button id="toggle-api-key" class="secondary" type="button" onclick="toggleApiKey()">Show</button>
-            </div>
+            <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
         </label>
         <br>
         <button type="submit">Run</button>
     </form>
     {output_block}
     {artifacts_block}
-    <script>
-        function toggleApiKey() {{
-            const input = document.getElementById("api-key");
-            const button = document.getElementById("toggle-api-key");
-            const showing = input.type === "text";
-            input.type = showing ? "password" : "text";
-            button.textContent = showing ? "Show" : "Hide";
-        }}
-    </script>
 </body>
 </html>"""
 
