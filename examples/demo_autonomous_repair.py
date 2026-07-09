@@ -244,7 +244,7 @@ def main() -> None:
     _phase("Phase 3: Build harness with real components")
 
     config = Config(
-        loop=LoopConfig(max_iterations=10),
+        loop=LoopConfig(max_iterations=20),
         guardrail=GuardrailConfig(enabled=False),
     )
     guardrail = Guardrail(config.guardrail)

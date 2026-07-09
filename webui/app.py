@@ -44,8 +44,19 @@ async def run_task(
                 if not existing_pythonpath
                 else os.pathsep.join([*pythonpath_parts, existing_pythonpath])
             )
-            result = subprocess.run(
-                [
+
+            if provider == "mock":
+                command = [
+                    sys.executable,
+                    str(PROJECT_ROOT / "examples" / "demo_autonomous_repair.py"),
+                ]
+                output_prefix = (
+                    "Mock mode selected: running deterministic offline TDD "
+                    "repair demo.\n"
+                    f"Submitted task: {task}\n\n"
+                )
+            else:
+                command = [
                     sys.executable,
                     "-m",
                     "harness.cli",
@@ -55,14 +66,18 @@ async def run_task(
                     provider,
                     "--config",
                     str(PROJECT_ROOT / "config.yaml"),
-                ],
+                ]
+                output_prefix = ""
+
+            result = subprocess.run(
+                command,
                 capture_output=True,
                 text=True,
                 cwd=tmp,
                 env=env,
                 timeout=60,
             )
-            output = result.stdout + "\n" + result.stderr
+            output = output_prefix + result.stdout + "\n" + result.stderr
     except Exception as exc:
         output = f"WebUI execution error: {exc}"
 
