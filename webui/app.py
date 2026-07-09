@@ -7,6 +7,7 @@ results. Designed to be deployed on Vercel's Python runtime.
 from __future__ import annotations
 
 import html
+import os
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,14 @@ async def run_task(
     """Execute a harness task and show the output."""
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            src_path = str(PROJECT_ROOT / "src")
+            existing_pythonpath = env.get("PYTHONPATH")
+            env["PYTHONPATH"] = (
+                src_path
+                if not existing_pythonpath
+                else f"{src_path}{os.pathsep}{existing_pythonpath}"
+            )
             result = subprocess.run(
                 [
                     sys.executable,
@@ -49,6 +58,7 @@ async def run_task(
                 capture_output=True,
                 text=True,
                 cwd=tmp,
+                env=env,
                 timeout=60,
             )
             output = result.stdout + "\n" + result.stderr
