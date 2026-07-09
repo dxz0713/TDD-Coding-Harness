@@ -1,43 +1,98 @@
 # TDD Coding Harness
 
-一个教学导向的 **Coding Agent Harness**。它把 LLM 包装成可执行代码任务的工程系统，重点展示：主循环、工具分发、治理护栏、上下文、记忆、配置，以及基于测试结果的反馈修复闭环。
+一个教学导向的 Coding Agent Harness。项目自己实现了 agent 主循环、LLM Provider 抽象、工具分发、Guardrail、Context、Memory，以及主要贡献 Feedback Engine。它可以在本地 CLI 中运行，也部署了一个可访问的 FastAPI WebUI。
 
-> **课程：** AI4SE 期末项目 · A 类 · Coding Agent Harness
->
-> **主要贡献：** Feedback Engine，可扩展的测试反馈分析与修复提示生成机制
+项目仓库：
 
-## CI 状态
+- GitHub: <https://github.com/dxz0713/TDD-Coding-Harness>
+- WebUI: <https://tdd-coding-harness.vercel.app/>
 
-![CI](https://github.com/dxz0713/TDD-Coding-Harness/actions/workflows/ci.yml/badge.svg)
+## 快速检查顺序
 
-![CI Pass Screenshot](CI_PASS.png)
+1. 阅读 `docs/README.md`、`docs/SPEC.md`、`docs/PLAN.md`、`docs/SPEC_PROCESS.md`。
+2. 打开 WebUI，先运行 Mock demo。
+3. 在 WebUI 中填写真实 API Key，运行 Real API 任务。
+4. 如需本地复现，clone GitHub 仓库后按本文命令运行。
 
-*CI 最后一次执行结果截图：2026-07-08*
+## 从源码本地运行
 
-## 快速开始
-
-### 环境要求
-
-- Python 3.12+
-- pip
-- 可选：Docker Desktop / Docker Engine
-
-### 安装
+### 1. 获取源码
 
 ```bash
-pip install -e ".[dev]"
+git clone https://github.com/dxz0713/TDD-Coding-Harness.git
+cd TDD-Coding-Harness
 ```
 
-### 离线冒烟测试
+### 2. 安装依赖
+
+建议使用 Python 3.12+。
 
 ```bash
-tdd-harness --help
-tdd-harness demo
+python -m venv .venv
 ```
 
-### 运行真实 API 任务
+Windows PowerShell:
 
-使用 OpenAI-compatible API 时，通过环境变量提供 API Key，不要写入仓库文件。
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+Linux / macOS:
+
+```bash
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+### 3. 一键测试
+
+```bash
+pytest tests/ -v
+```
+
+最后一次本地验证结果：
+
+```text
+213 passed, 1 skipped
+```
+
+## 本地 Mock 运行
+
+Mock 模式用于离线、确定性地检查 harness 机制，不需要 API Key，也不调用真实 LLM。
+
+推荐运行三个机制演示：
+
+```bash
+python examples/demo_guardrail.py
+python examples/demo_feedback.py
+python examples/demo_autonomous_repair.py
+```
+
+含义：
+
+- `demo_guardrail.py`：演示危险 shell 命令被 Guardrail 拦截。
+- `demo_feedback.py`：演示 Feedback Engine 对失败类型进行分类并生成修复提示。
+- `demo_autonomous_repair.py`：演示 MockProvider 下的完整 TDD 闭环，包含写代码、测试失败、反馈修复、测试通过。
+
+也可以运行 CLI 的 mock provider：
+
+```bash
+tdd-harness run "检查 mock provider" --provider mock
+```
+
+说明：CLI 的 `--provider mock` 是底层测试替身，默认不生成真实代码任务；完整 mock 检查应使用 `examples/` 或 WebUI 的 Mock demo。
+
+## 本地 Real API 运行
+
+真实 API 模式使用 OpenAI-compatible API。不要把 API Key 写入源码、配置文件或日志。
+
+PowerShell 临时环境变量：
+
+```powershell
+$env:OPENAI_API_KEY = "your-api-key"
+tdd-harness run "编写一个计算斐波那契数列的函数" --provider openai --model deepseek-v4-pro
+```
 
 Linux / macOS:
 
@@ -46,14 +101,7 @@ export OPENAI_API_KEY="your-api-key"
 tdd-harness run "编写一个计算斐波那契数列的函数" --provider openai --model deepseek-v4-pro
 ```
 
-PowerShell:
-
-```powershell
-$env:OPENAI_API_KEY = "your-api-key"
-tdd-harness run "编写一个计算斐波那契数列的函数" --provider openai --model deepseek-v4-pro
-```
-
-课程提供的 OpenAI-compatible endpoint 可通过本地配置文件使用：
+课程 endpoint 可用本地配置文件指定：
 
 ```powershell
 @"
@@ -80,259 +128,166 @@ memory:
   path: output/memory.json
 "@ | Set-Content -Encoding UTF8 config.local.yaml
 
+$env:OPENAI_API_KEY = "your-api-key"
 tdd-harness run "编写一个计算斐波那契数列的函数" --config config.local.yaml
 ```
 
-`config.local.yaml` 已被 `.gitignore` 排除，不会提交。
+`config.local.yaml` 已被 `.gitignore` 排除，不应提交。
 
-## 最终验证结果
+## 本地产物位置
 
-### 单元测试
+CLI 每次运行都会在配置的 `loop.workspace` 下创建一个独立任务目录，默认是 `./workspace`。
 
-```bash
-pytest tests/ -v
-```
-
-本地最终结果（2026-07-09）：
+示例：
 
 ```text
-213 passed, 1 skipped
+workspace/
+├── fib/
+│   ├── fib.py
+│   ├── test_fib.py
+│   └── log.txt
+└── gcd/
+    ├── gcd.py
+    ├── test_gcd.py
+    └── log.txt
 ```
 
-### 真实 API 端到端验证
+规则：
 
-真实 API 调用已完成两次端到端任务：
+- 斐波那契 / fibonacci / fib 任务默认进入 `workspace/fib`。
+- 最大公约数 / 最大公因数 / gcd 任务默认进入 `workspace/gcd`。
+- 其他英文任务会生成 slug，例如 `workspace/write-a-test`。
+- 如果目录已存在，会自动加时间戳，例如 `workspace/fib-20260709-190946`。
+- `log.txt` 保存本次 CLI 输出和 harness 迭代日志。
+
+已有真实 API 证据：
+
+- `workspace/fib/`：Fibonacci 任务产物和日志。
+- `workspace/gcd/`：GCD 任务产物和日志。
+
+## WebUI 运行
+
+访问：
+
+<https://tdd-coding-harness.vercel.app/>
+
+### WebUI Mock 模式
+
+1. Provider 选择 `Mock (offline)`。
+2. 在 Demo 下拉框选择一个固定 demo：
+   - `Autonomous repair TDD demo`
+   - `Feedback engine demo`
+   - `Guardrail safety demo`
+3. 点击 `Run`。
+
+说明：
+
+- Mock 模式不能自定义 task。
+- Mock 模式不需要 Base URL、Model 或 API Key。
+- 输出格式会显示 `Provider: mock`、固定 demo task、迭代摘要。
+- 页面下方会显示 `Artifacts`。如果该 demo 不生成文件，会显示空状态；如果生成文件，会展示文件内容并提供 zip 下载。
+
+### WebUI Real API 模式
+
+1. Provider 选择 `OpenAI-compatible`。
+2. 填写 Task，例如：
 
 ```text
-Task: 编写一个计算斐波那契数列的函数
-SUCCESS - All tests passed
-Iterations: 9
-Generated artifacts: workspace/fib/fib.py, workspace/fib/test_fib.py
-Captured CLI log: workspace/fib/log.txt
-
-Task: 编写一个计算最大公因数的函数
-SUCCESS - All tests passed
-Iterations: 3
-Generated artifacts: workspace/gcd/gcd.py, workspace/gcd/test_gcd.py
-Captured CLI log: workspace/gcd/log.txt
+编写一个计算斐波那契数列的函数
 ```
 
-`workspace/` 是真实 API 调用证据目录：
+3. 填写 Base URL：
 
-- `workspace/README.md`：证据目录说明
-- `workspace/fib/`：Fibonacci 任务的代码、测试和 CLI 输出
-- `workspace/gcd/`：GCD 任务的代码、测试和 CLI 输出
+```text
+https://njusehub.info/v1
+```
 
-### Docker 验证
+4. 填写 Model：
+
+```text
+deepseek-v4-pro
+```
+
+5. 填写 API Key。输入框默认隐藏，浏览器自带眼睛图标可临时显示。
+6. 点击 `Run`。
+
+说明：
+
+- API Key 仅用于本次请求，不写入仓库文件。
+- WebUI 会把本次运行放入服务器临时目录。
+- 请求结束前，WebUI 会收集临时目录中的产物，直接展示在页面的 `Artifacts` 区域，并提供 `artifacts.zip` 下载。
+- Vercel 临时目录不会长期保存，因此老师应在当次结果页查看或下载产物。
+
+## Docker 运行
 
 ```bash
 docker build -t tdd-harness .
 docker run --rm tdd-harness --help
 ```
 
-本地最终结果（2026-07-09）：
+本地最终验证结果：
 
 ```text
 docker build -t tdd-harness .        -> success
 docker run --rm tdd-harness --help   -> success
 ```
 
-镜像中包含 `config.yaml`，因此容器内可以解析默认 CLI 配置。容器内 mock run 会以 `FAILURE - LLM returned no tool calls` 退出，这是默认 `MockProvider` 没有工具调用时的预期行为。
+## CI/CD
 
-### Web UI / Vercel
-
-项目包含一个极简 FastAPI Web UI，位于 `webui/`，用于 Vercel 部署演示。Web UI 只是 CLI 的薄包装，不替代自实现的 harness 主循环。
-
-本地 WebUI 健康检查（2026-07-09）：
-
-```text
-GET /      -> 200
-POST /run  -> 200
-```
-
-Vercel 相关修复：
-
-- 根目录 `app.py` 作为 Vercel Python runtime 默认入口
-- `pyproject.toml` 声明 `[tool.vercel] entrypoint = "app:app"`
-- 删除旧 `vercel.json` 的 `builds/routes` 配置，避免覆盖官方 Python runtime 入口
-- `requirements.txt` / `pyproject.toml` 补齐 FastAPI 运行依赖
-- 补充 `python-multipart`，修复 FastAPI 表单路由导入时报错导致的 500
-- WebUI 改为内联 HTML，避免模板文件在 Vercel 函数包中缺失导致首页 500
-- WebUI 子进程显式传入项目根 `config.yaml`
-
-若线上旧部署仍返回 500，重新部署即可触发 GitHub 绑定的 Vercel 构建。
+- GitHub Actions: <https://github.com/dxz0713/TDD-Coding-Harness/actions>
+- Vercel 部署绑定 GitHub `master` 分支，push 后自动重构。
+- 课程要求的 `.gitlab-ci.yml` 也保留在仓库中，包含 `unit-test` job。
 
 ## 架构说明
 
-整体流程：
-
 ```text
-CLI -> Config -> ProviderFactory -> HarnessLoop -> Tools / Feedback / Guardrail
+CLI / WebUI
+    -> Config
+    -> ProviderFactory
+    -> HarnessLoop
+    -> ToolDispatcher / Guardrail / FeedbackEngine / Memory
 ```
 
-1. **CLI 层**：`harness/cli.py` 使用 Typer 实现 `run` 与 `demo` 命令。CLI 参数优先级高于配置文件。
-2. **配置层**：`harness/config.py` 使用 Pydantic 加载 `config.yaml`，支持 `--provider`、`--model` 覆盖。
-3. **Provider 层**：`providers/factory.py` 实现注册表工厂。内置 `MockProvider` 和 `OpenAICompatibleProvider`。
-4. **主循环**：`harness/loop.py` 实现核心 agent loop：构建上下文、调用 LLM、解析工具调用、护栏检查、工具执行、反馈分析、停机判断。
-5. **工具分发**：`tools/dispatcher.py` 将 LLM 的工具调用路由到 `ReadFile`、`WriteFile`、`RunShell`。
-6. **治理护栏**：`harness/guardrail.py` 在 shell 命令执行前拦截危险动作，如 `rm -rf /`、fork bomb、破坏性数据库命令等。
-7. **反馈引擎**：`feedback/` 是主要贡献，负责从测试输出中提取客观反馈并生成修复提示。
-8. **上下文与记忆**：`harness/context.py` 管理消息上下文，`harness/memory.py` 提供 JSON 文件形式的跨会话记忆。
+核心模块：
 
-## Feedback Engine
-
-Feedback Engine 的流水线：
-
-```text
-ToolResult -> Collector -> FailureAnalyzer -> RepairStrategy -> Feedback
-```
-
-它支持 7 类失败分析：
-
-- `SyntaxError`
-- `AssertionError`
-- `ImportError`
-- `RuntimeError`
-- `Timeout`
-- `TestFailure`
-- `Unknown`
-
-这些机制都可以在 MockProvider 下用确定性单元测试验证，满足课程要求中“机制必须是代码，而不是提示词”的约束。
-
-## 配置说明
-
-默认配置文件为 `config.yaml`：
-
-```yaml
-version: 1
-
-provider:
-  name: mock
-  model: deepseek-v4-flash
-  base_url: https://njusehub.info/v1
-  temperature: 0.0
-  max_tokens: 4096
-  timeout: 30
-
-loop:
-  max_iterations: 15
-  workspace: ./workspace
-
-guardrail:
-  enabled: true
-  block_list: []
-
-memory:
-  enabled: true
-  path: output/memory.json
-```
-
-配置优先级：
-
-1. CLI 参数，如 `--provider`、`--model`
-2. 配置文件，如 `config.yaml` / `config.local.yaml`
-3. Pydantic 模型中的内置默认值
-
-Provider 切换示例：
-
-```bash
-# 离线 mock
-tdd-harness run "task description" --provider mock
-
-# OpenAI-compatible API
-tdd-harness run "task description" --provider openai --model deepseek-v4-pro
-
-# 自定义配置文件
-tdd-harness run "task description" --config config.local.yaml
-```
-
-## 机制演示
-
-`examples/` 目录包含三个确定性演示脚本：
-
-```bash
-# 治理护栏：危险命令拦截
-python examples/demo_guardrail.py
-
-# 反馈分类：7 类失败类型识别
-python examples/demo_feedback.py
-
-# 完整 TDD 闭环：MockProvider 下的自主修复周期
-python examples/demo_autonomous_repair.py
-```
+- `src/harness/loop.py`：agent 主循环。
+- `src/providers/`：MockProvider 与 OpenAI-compatible Provider。
+- `src/tools/`：`read_file`、`write_file`、`run_shell`。
+- `src/feedback/`：Collector、FailureAnalyzer、RepairStrategy、FeedbackEngine。
+- `src/harness/guardrail.py`：危险动作拦截。
+- `webui/app.py`：Vercel 上的 FastAPI WebUI。
 
 ## 项目结构
 
 ```text
-├── src/
-│   ├── feedback/                 # Feedback Engine，核心贡献
-│   ├── harness/                  # Harness 主循环、配置、上下文、护栏、记忆
-│   ├── providers/                # LLM Provider 抽象、Mock、OpenAI-compatible 实现
-│   ├── tests/                    # 源码侧测试套件
-│   └── tools/                    # read_file / write_file / run_shell 工具
-├── examples/                     # 机制演示脚本
-├── app.py                        # Vercel Python runtime 入口
-├── webui/                        # FastAPI Web UI，用于 Vercel 部署演示
-├── workspace/                    # 真实 API 调用证据目录
-│   ├── README.md
-│   ├── fib/
-│   │   ├── fib.py
-│   │   ├── test_fib.py
-│   │   └── log.txt
-│   └── gcd/
-│       ├── gcd.py
-│       ├── test_gcd.py
-│       └── log.txt
-├── tests/                        # 顶层 pytest tests/ 兼容入口
-├── docs/                         # SPEC、PLAN、过程文档
-├── plan/                         # 课程要求与项目计划
-├── config.yaml                   # 默认配置
-├── Dockerfile                    # Docker 构建文件
-├── pyproject.toml                # 项目元数据、依赖、pytest/Vercel 配置
-├── AGENT_LOG.md                  # 开发与验证日志
-├── REFLECTION.md                 # 项目反思
+├── src/                         # harness 源码
+├── examples/                    # mock 机制演示脚本
+├── tests/                       # 顶层 pytest tests/ 入口
+├── docs/                        # 设计、计划、过程与提交索引
+├── plan/                        # 课程原始要求
+├── workspace/                   # 本地真实 API 运行产物
+├── webui/                       # FastAPI WebUI
+├── .github/workflows/ci.yml     # GitHub Actions CI
+├── .gitlab-ci.yml               # 课程要求的 GitLab CI job
+├── Dockerfile
+├── config.yaml
+├── pyproject.toml
+├── docs/AGENT_LOG.md
+├── docs/REFLECTION.md
 └── README.md
 ```
 
-## 设计决策
-
-### 为什么不使用 LangGraph / CrewAI / AutoGen？
-
-课程要求交付的是自己编码实现的 harness 内核，而不是基于现成 agent 编排框架的配置层。因此本项目自行实现：
-
-- agent 主循环
-- Provider 抽象
-- Tool Dispatcher
-- Guardrail
-- Feedback Engine
-- Stop Condition
-- Memory Store
-
-### 为什么 Web UI 很薄？
-
-核心交付物是 CLI harness。Web UI 只作为部署和展示入口，最终仍调用同一套 CLI 与 harness 代码，不引入第二套 agent runtime。
-
 ## 安全说明
 
-- API Key 通过 `OPENAI_API_KEY` 环境变量或本地 `.env` 提供。
-- `.env`、`config.local.yaml` 被 `.gitignore` 排除。
-- 不要把真实 API Key 写入源码、文档或日志。
+- API Key 通过环境变量或 WebUI 表单传入。
+- `.env`、`.env.local`、`config.local.yaml`、`*.key` 已在 `.gitignore` 中排除。
+- 不要将真实 API Key 写入 README、日志、截图、配置或 commit history。
 - `workspace/fib/log.txt` 与 `workspace/gcd/log.txt` 已检查，不包含真实 API Key。
-- Guardrail 会在执行 shell 前拦截危险命令。
-
-API Key 配置方式：
-
-| 等级 | 方式 | 说明 |
-|------|------|------|
-| 推荐 | 系统钥匙串 | 可通过 `keyring` 接入 Windows Credential Manager / macOS Keychain |
-| 常用 | `.env` 文件 | 明文文件，必须确认被 `.gitignore` 排除 |
-| 临时 | 环境变量 | 适合一次性验证，如 PowerShell `$env:OPENAI_API_KEY="..."` |
-| 禁止 | 硬编码 | 不得在源码、配置或提交记录中写入真实 Key |
+- Guardrail 会在 shell 执行前拦截危险命令，如 `rm -rf /`、fork bomb、破坏性数据库命令等。
 
 ## 已知限制
 
-- 目前只实现 OpenAI-compatible Provider，未实现 Anthropic Claude Provider。
-- Feedback Analyzer 主要针对 pytest 输出，其他测试框架未做专门适配。
-- Memory 是 JSON 文件实现，生产级场景应替换为数据库或向量检索存储。
-- Windows / Linux shell 差异可能影响 `RunShell` 的具体命令行为。
-- Web UI 是展示层，不提供复杂任务管理、权限控制或多用户隔离。
+- 当前只实现 OpenAI-compatible Provider，未实现 Anthropic Claude Provider。
+- Feedback Analyzer 主要针对 pytest 输出。
+- WebUI 是演示层，不提供用户登录、任务持久化或多用户隔离。
+- Vercel 临时目录只在单次请求内可靠，长期产物请使用本地 CLI 的 `workspace/`。

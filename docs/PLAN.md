@@ -159,7 +159,7 @@ Phase 7: Delivery
 ⑤ 提交 PR: git commit + PR（含 subagent 标注）
 ⑥ 代码审查: 检查 SPEC 合规 + 代码质量
 ⑦ Merge: 合并到主分支
-⑧ 更新 AGENT_LOG: 记录关键节点与教训
+⑧ 更新 docs/AGENT_LOG.md: 记录关键节点与教训
 ```
 
 **通用 DoD（Definition of Done）：**
@@ -169,7 +169,7 @@ Phase 7: Delivery
 □ 测试覆盖核心逻辑（边界条件 + 错误路径）
 □ 类型提示完整（Python type hints）
 □ SPEC 合规检查通过
-□ 更新 AGENT_LOG.md
+□ 更新 docs/AGENT_LOG.md
 ```
 
 ---
@@ -748,9 +748,9 @@ strategy_map = {
 
 | 字段 | 内容 |
 |------|------|
-| **目标** | 完成 AGENT_LOG.md，做最终验证 |
-| **涉及文件** | `AGENT_LOG.md`, `REFLECTION.md` |
-| **实现要点** | ① AGENT_LOG.md：按时间记录关键节点，每条记录包含 **Decision → Reason → Result → Reflection** 四段式格式 ② 验证所有机制演示可运行 ③ 验证 `pytest tests/` 全部通过 |
+| **目标** | 完成 docs/AGENT_LOG.md，做最终验证 |
+| **涉及文件** | `docs/AGENT_LOG.md`, `docs/REFLECTION.md` |
+| **实现要点** | ① docs/AGENT_LOG.md：按时间记录关键节点，每条记录包含 **Decision → Reason → Result → Reflection** 四段式格式 ② 验证所有机制演示可运行 ③ 验证 `pytest tests/` 全部通过 |
 
 **AGENT_LOG 记录格式示例：**
 ```
