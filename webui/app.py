@@ -46,14 +46,23 @@ DEMO_OPTIONS = {
     "autonomous_repair": {
         "label": "Autonomous repair TDD demo",
         "script": "demo_autonomous_repair.py",
+        "task": "Implement a Fibonacci function",
+        "success": "SUCCESS - All tests passed",
+        "iterations": "7",
     },
     "feedback": {
         "label": "Feedback engine demo",
         "script": "demo_feedback.py",
+        "task": "Classify test failures and produce repair feedback",
+        "success": "SUCCESS - Feedback demo completed",
+        "iterations": "1",
     },
     "guardrail": {
         "label": "Guardrail safety demo",
         "script": "demo_guardrail.py",
+        "task": "Block dangerous shell commands and allow safe ones",
+        "success": "SUCCESS - Guardrail demo completed",
+        "iterations": "1",
     },
 }
 
@@ -92,6 +101,7 @@ async def run_task(
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            output_suffix = ""
             env = os.environ.copy()
             pythonpath_parts = [str(PROJECT_ROOT / "src")]
             pythonpath_parts.extend(path for path in sys.path if path)
@@ -109,9 +119,11 @@ async def run_task(
                     str(PROJECT_ROOT / "examples" / str(demo_config["script"])),
                 ]
                 output_prefix = (
-                    "Mock mode selected: running a fixed deterministic offline "
-                    "demo.\n"
-                    f"Demo: {demo_config['label']}\n\n"
+                    "Provider: mock\n"
+                    "Model:    deterministic-demo\n"
+                    "Config:   fixed offline demo\n"
+                    f"Demo:     {demo_config['label']}\n"
+                    f"Task:     {demo_config['task']}\n\n"
                 )
             else:
                 effective_task = task.strip()
@@ -175,7 +187,12 @@ async def run_task(
                 env=env,
                 timeout=60,
             )
-            output = output_prefix + result.stdout + "\n" + result.stderr
+            if provider == "mock":
+                output_suffix = _render_mock_summary(
+                    result.returncode,
+                    DEMO_OPTIONS[selected_demo],
+                )
+            output = output_prefix + result.stdout + "\n" + result.stderr + output_suffix
             artifacts, artifact_zip_b64 = _collect_artifacts(Path(tmp))
     except Exception as exc:
         output = f"WebUI execution error: {exc}"
@@ -192,6 +209,29 @@ async def run_task(
             artifact_zip_b64=artifact_zip_b64,
             show_artifacts=True,
         )
+    )
+
+
+def _render_mock_summary(
+    returncode: int,
+    demo_config: dict[str, str],
+) -> str:
+    """Render a CLI-like summary for deterministic mock demos."""
+    if returncode == 0:
+        status = demo_config["success"]
+        iterations = demo_config["iterations"]
+    else:
+        status = "FAILURE - Demo failed"
+        iterations = "n/a"
+
+    return (
+        "\n"
+        + "=" * 60
+        + "\n"
+        + f"  {status}\n"
+        + f"  Iterations: {iterations}\n"
+        + "=" * 60
+        + "\n"
     )
 
 
