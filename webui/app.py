@@ -6,11 +6,14 @@ results. Designed to be deployed on Vercel's Python runtime.
 
 from __future__ import annotations
 
+import base64
 import html
+import io
 import os
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from textwrap import dedent
 
@@ -20,6 +23,25 @@ from fastapi.responses import HTMLResponse
 app = FastAPI(title="TDD Coding Harness WebUI")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MAX_ARTIFACT_FILES = 20
+MAX_ARTIFACT_PREVIEW_BYTES = 64 * 1024
+EXCLUDED_ARTIFACT_NAMES = {"config.webui.yaml"}
+EXCLUDED_ARTIFACT_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache"}
+TEXT_ARTIFACT_EXTENSIONS = {
+    ".cfg",
+    ".css",
+    ".html",
+    ".ini",
+    ".js",
+    ".json",
+    ".log",
+    ".md",
+    ".py",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -37,6 +59,8 @@ async def run_task(
     api_key: str = Form(""),
 ) -> HTMLResponse:
     """Execute a harness task and show the output."""
+    artifacts: list[dict[str, object]] = []
+    artifact_zip_b64 = ""
     try:
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -121,6 +145,7 @@ async def run_task(
                 timeout=60,
             )
             output = output_prefix + result.stdout + "\n" + result.stderr
+            artifacts, artifact_zip_b64 = _collect_artifacts(Path(tmp))
     except Exception as exc:
         output = f"WebUI execution error: {exc}"
 
@@ -131,8 +156,70 @@ async def run_task(
             provider=provider,
             base_url=base_url,
             model=model,
+            artifacts=artifacts,
+            artifact_zip_b64=artifact_zip_b64,
         )
     )
+
+
+def _collect_artifacts(workspace: Path) -> tuple[list[dict[str, object]], str]:
+    """Collect generated workspace files before Vercel removes the temp dir."""
+    artifacts: list[dict[str, object]] = []
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(workspace.rglob("*")):
+            if len(artifacts) >= MAX_ARTIFACT_FILES:
+                break
+            if not path.is_file():
+                continue
+
+            rel_path = path.relative_to(workspace)
+            rel_parts = rel_path.parts
+            rel_name = rel_path.as_posix()
+            if path.name in EXCLUDED_ARTIFACT_NAMES:
+                continue
+            if any(part in EXCLUDED_ARTIFACT_DIRS for part in rel_parts):
+                continue
+
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+
+            archive.writestr(rel_name, data)
+            artifact: dict[str, object] = {
+                "path": rel_name,
+                "size": len(data),
+                "binary": not _looks_like_text(path, data),
+                "truncated": len(data) > MAX_ARTIFACT_PREVIEW_BYTES,
+            }
+            if artifact["binary"]:
+                artifact["content"] = ""
+            else:
+                artifact["content"] = data[:MAX_ARTIFACT_PREVIEW_BYTES].decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            artifacts.append(artifact)
+
+    if not artifacts:
+        return [], ""
+
+    return artifacts, base64.b64encode(zip_buffer.getvalue()).decode("ascii")
+
+
+def _looks_like_text(path: Path, data: bytes) -> bool:
+    """Return True for source-like files that can be previewed inline."""
+    if path.suffix.lower() in TEXT_ARTIFACT_EXTENSIONS:
+        return True
+    if b"\x00" in data[:1024]:
+        return False
+    try:
+        data[:4096].decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def _render_page(
@@ -141,6 +228,8 @@ def _render_page(
     provider: str = "mock",
     base_url: str = "https://njusehub.info/v1",
     model: str = "deepseek-v4-pro",
+    artifacts: list[dict[str, object]] | None = None,
+    artifact_zip_b64: str = "",
 ) -> str:
     """Render a small self-contained HTML page.
 
@@ -156,6 +245,7 @@ def _render_page(
     output_block = (
         f"<h2>Output</h2><pre>{escaped_output}</pre>" if output else ""
     )
+    artifacts_block = _render_artifacts(artifacts or [], artifact_zip_b64)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -169,9 +259,16 @@ def _render_page(
         textarea {{ width: 100%; min-height: 100px; padding: 0.5rem; font-family: monospace; }}
         input, select {{ width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }}
         label {{ display: block; margin-top: 1rem; font-weight: 600; }}
+        .password-row {{ display: flex; gap: 0.5rem; align-items: end; }}
+        .password-row input {{ flex: 1; }}
         button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }}
         button:hover {{ background: #0055aa; }}
+        button.secondary {{ width: auto; padding: 0.5rem 1rem; background: #555; white-space: nowrap; }}
+        a.download {{ display: inline-block; margin: 0.5rem 0 1rem; color: #0066cc; font-weight: 600; }}
         pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; }}
+        .artifact {{ margin: 1rem 0; }}
+        .artifact-name {{ font-weight: 700; }}
+        .artifact-meta {{ color: #666; font-size: 0.85rem; }}
         .info {{ color: #666; font-size: 0.9rem; }}
     </style>
 </head>
@@ -195,11 +292,60 @@ def _render_page(
             <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
         </label>
         <label>API Key (real API mode only, not stored):
-            <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
+            <div class="password-row">
+                <input id="api-key" name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
+                <button id="toggle-api-key" class="secondary" type="button" onclick="toggleApiKey()">Show</button>
+            </div>
         </label>
         <br>
         <button type="submit">Run</button>
     </form>
     {output_block}
+    {artifacts_block}
+    <script>
+        function toggleApiKey() {{
+            const input = document.getElementById("api-key");
+            const button = document.getElementById("toggle-api-key");
+            const showing = input.type === "text";
+            input.type = showing ? "password" : "text";
+            button.textContent = showing ? "Show" : "Hide";
+        }}
+    </script>
 </body>
 </html>"""
+
+
+def _render_artifacts(
+    artifacts: list[dict[str, object]],
+    artifact_zip_b64: str,
+) -> str:
+    """Render collected generated files."""
+    if not artifacts:
+        return ""
+
+    download_link = (
+        '<a class="download" download="tdd-harness-artifacts.zip" '
+        f'href="data:application/zip;base64,{artifact_zip_b64}">'
+        "Download artifacts.zip</a>"
+        if artifact_zip_b64
+        else ""
+    )
+    blocks = []
+    for artifact in artifacts:
+        path = html.escape(str(artifact["path"]))
+        size = int(artifact["size"])
+        truncated = " preview truncated" if artifact["truncated"] else ""
+        if artifact["binary"]:
+            body = "<pre>Binary file included in zip download.</pre>"
+        else:
+            content = html.escape(str(artifact.get("content", "")))
+            body = f"<pre>{content}</pre>"
+        blocks.append(
+            '<div class="artifact">'
+            f'<div class="artifact-name">{path}</div>'
+            f'<div class="artifact-meta">{size} bytes{truncated}</div>'
+            f"{body}"
+            "</div>"
+        )
+
+    return f"<h2>Artifacts</h2>{download_link}{''.join(blocks)}"

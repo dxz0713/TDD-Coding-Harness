@@ -21,14 +21,12 @@ from harness.stop_condition import AutonomousStopDecision
 from feedback.engine import FeedbackEngine
 from providers.factory import ProviderFactory
 from tools.read_file import ReadFile
+from tools.dispatcher import ToolDispatcher
 from tools.run_shell import RunShell
 from tools.write_file import WriteFile
 
 # Import harness package to trigger built-in provider registration
 import harness  # noqa: F401
-
-# ── Default tool dispatcher ───────────────────────────────────────────
-from harness import get_default_dispatcher
 
 app = typer.Typer(help="TDD Coding Harness - CLI")
 
@@ -59,6 +57,16 @@ _BUILTIN_TOOL_DEFS: list[ToolDef] = [
         parameters=RunShell.input_schema,
     ),
 ]
+
+
+def _build_workspace_dispatcher(workspace: Path) -> ToolDispatcher:
+    """Create tools scoped to the configured workspace."""
+    allowed_root = workspace.resolve()
+    dispatcher = ToolDispatcher()
+    dispatcher.register(ReadFile(allowed_root=allowed_root))
+    dispatcher.register(WriteFile(allowed_root=allowed_root))
+    dispatcher.register(RunShell())
+    return dispatcher
 
 
 @app.callback(invoke_without_command=True)
@@ -131,7 +139,7 @@ def run(
         raise typer.Exit(code=1) from exc
 
     # ── 3. Build harness dependencies ──────────────────────────────────
-    dispatcher = get_default_dispatcher()
+    dispatcher = _build_workspace_dispatcher(Path(cfg.loop.workspace))
     guardrail = Guardrail(cfg.guardrail)
     context_manager = ContextManager()
     stop_decision = AutonomousStopDecision(guardrail, cfg.loop)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sys
 import os
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -146,8 +147,9 @@ def main() -> None:
     _phase("Phase 1: Register tools")
 
     dispatcher = ToolDispatcher()
-    dispatcher.register(WriteFile())
-    dispatcher.register(ReadFile())
+    workspace = Path.cwd()
+    dispatcher.register(WriteFile(allowed_root=workspace))
+    dispatcher.register(ReadFile(allowed_root=workspace))
     dispatcher.register(_MockRunShell())
     print("  Tools registered: write_file, read_file, run_shell")
 
