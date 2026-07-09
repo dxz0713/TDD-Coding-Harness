@@ -2,7 +2,8 @@
 
 > **Project:** TDD Coding Harness — AI4SE Final Project Category A
 > **Date:** 2026-07-07 to 2026-07-09
-> **Total Tasks:** T1–T19 plus final hardening/verification
+> **Planned Tasks:** T1–T21
+> **Implementation Log:** T1–T19 plus T20/T21 final hardening/verification
 
 ---
 
@@ -10,7 +11,7 @@
 
 - **Date:** 2026-07-07 12:30
 - **Sub-agent:** Claude Code (Sonnet)
-- **Files:** `.gitignore`, `docs/SPEC.md`, `docs/SPEC_PROCESS.md`, `plan/AI4SE_Final_Project_A_Coding_Agent_Harness.md`, `plan/workflow.md`, `plan/通用要求.md`, `plan/应用类项目.md`
+- **Files:** `.gitignore`, `docs/SPEC.md`, `docs/SPEC_PROCESS.md`, `plan/AI4SE_Final_Project_A_Coding_Agent_Harness.md`, `plan/workflow.md`, `plan/通用要求.md`
 - **Key decisions:** 采用 SPEC.md + SPEC_PROCESS.md 双文档体系，分别描述系统规格和开发流程；中文需求文档保留在 `plan/` 目录。
 - **Result:** 7 files created, 1730 lines added
 - **Reflection:** 初始项目结构奠定了整个项目的文档规范，后续所有任务都基于 SPEC 中的定义展开。
@@ -24,7 +25,7 @@
 - **Files:** `docs/SPEC.md`, `docs/SPEC_PROCESS.md`, `docs/PLAN.md`
 - **Key decisions:**
   - 增加 CLI 参数覆盖 provider/model 的规格 (SPEC §3.8)
-  - PLAN.md 采用 20-task 分解，标注每个 Task 的 SPI 和依赖关系
+  - PLAN.md 采用 21-task 分解，标注每个 Task 的 SP 和依赖关系
   - 经过 8 轮 review 和 4 轮 refinement 迭代
 - **Result:** 6 commits, ~1000 lines refined across SPEC and PLAN
 - **Reflection:** 文档先行（documentation-driven）的策略有效减少了后期实现中的歧义。PLAN.md 的迭代次数（8 轮 review 建议）说明前期设计需要充分讨论。
@@ -222,11 +223,12 @@
 
 - **Date:** 2026-07-09 02:19 +08:00
 - **Agent:** Codex
-- **Files:** `.gitignore`, `Dockerfile`, `README.md`, `app.py`, `pyproject.toml`, `requirements.txt`, `src/harness/cli.py`, `src/harness/loop.py`, `tests/test_src_suite.py`, `webui/app.py`, `webui/requirements.txt`
+- **Files:** `.gitignore`, `Dockerfile`, `README.md`, `docs/README.md`, `app.py`, `pyproject.toml`, `requirements.txt`, `src/harness/cli.py`, `src/harness/loop.py`, `tests/test_src_suite.py`, `webui/app.py`, `webui/requirements.txt`
 - **Decision:** 修复最终交付前的运行路径问题，而不改变核心 harness 架构。
 - **Reason:** `pytest tests/ -v` 需要在受限 Windows 环境稳定运行；CLI mock 路径存在无工具调用死循环；Vercel WebUI 500 需要定位；真实 API 和 Docker 需要交付前验证。
 - **Result:**
   - `pytest tests/ -v` 通过：`213 passed, 1 skipped`
+  - 唯一 skipped 测试为 `test_openai_provider_can_be_created_via_factory`，原因是本地未设置 `OPENAI_API_KEY` 时跳过真实 OpenAI-compatible Provider 实例化检查，以保证默认测试不依赖真实凭据
   - 修复 `HarnessLoop` 文本但无 tool call 时无限循环的问题，改为确定性失败退出
   - CLI 输出改为 ASCII，避免 Windows GBK 下 `UnicodeEncodeError`
   - 新增 `tests/test_src_suite.py`，兼容顶层 `pytest tests/ -v`
@@ -238,7 +240,9 @@
   - WebUI 改为内联 HTML，避免模板文件打包缺失导致首页 500
   - 真实 API Fibonacci 调用通过：`SUCCESS - All tests passed`，`Iterations: 9`
   - 真实 API GCD 调用通过：`SUCCESS - All tests passed`，`Iterations: 3`
+  - 本地 Real API LCM 调用通过：`SUCCESS - All tests passed`，`Iterations: 10`，作为最终手动验证记录；长期提交的真实 API 证据仍以 `workspace/fib/` 与 `workspace/gcd/` 为准
   - 真实 API 证据目录：`workspace/fib/`、`workspace/gcd/`
+  - WebUI Real API 与 Mock demo 均完成手动检查；`Run` 按钮在运行中显示 `Running` 并禁用，API Key 仅在当前浏览器标签页 `sessionStorage` 保留，不由服务端持久化或回显
   - Docker 验证通过：`docker build -t tdd-harness .` 成功，`docker run --rm tdd-harness --help` 成功
   - Dockerfile 补充复制 `config.yaml`，容器内默认 CLI 配置可解析
 - **Reflection:** 最终问题集中在运行环境边界和交付命令一致性，而不是核心机制缺失。将测试入口、临时目录、WebUI 依赖和 CLI 输出做成确定性行为后，项目更适合在评分环境和不同机器上复现。
@@ -249,13 +253,14 @@
 
 | 指标 | 数值 |
 |------|------|
-| 总 Task 数 | 19 + final hardening |
+| 计划 Task 数 | 21 |
+| 实际实现记录 | T1-T19 + T20/T21 final hardening |
 | 总 Commits | 23 |
 | 源文件数 | ~40 Python files |
 | 测试文件数 | 13 source test files + 1 compatibility entry |
-| 总测试数 | 214 collected (`213 passed, 1 skipped`) |
+| 总测试数 | 214 collected (`213 passed, 1 skipped`; skipped 为未设置 `OPENAI_API_KEY` 时的 OpenAI provider 实例化检查) |
 | Demo 脚本 | 3 |
 
 ---
 
-*AGENT_LOG generated on 2026-07-07 by Claude Code*
+*Last updated on 2026-07-09 by Codex*

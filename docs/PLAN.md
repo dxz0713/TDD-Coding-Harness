@@ -57,7 +57,6 @@
 ① Decision Layer: 重复 Tool 去重、重复错误检测、Retry Policy、Stop Policy
    （Harness 自主决策，不依赖 LLM 判断）
 ```
-```
 
 ---
 
@@ -99,7 +98,7 @@ src/
 │   ├── test_providers.py, test_tools.py, test_dispatcher.py
 │   ├── test_guardrail.py, test_memory.py, test_context.py
 │   ├── test_stop_condition.py, test_loop.py
-│   ├── test_feedback_models.py, test_analyzer.py, test_feedback_engine.py
+│   ├── test_analyzer.py, test_feedback_engine.py
 │   ├── test_cli.py, test_loop_integration.py
 │   └── ...
 └── examples/
@@ -181,7 +180,7 @@ Phase 7: Delivery
 | 功能 | 理由 |
 |------|------|
 | 多 Agent 协作 | A 类要求的是单 Agent Harness |
-| GUI / Web UI | 项目定位为 CLI 工具 |
+| 完整产品级 GUI | 核心 Harness 定位为 CLI / 可编程内核；仅提供轻量 FastAPI WebUI 作为课程部署与演示入口，不做完整产品级 GUI |
 | IDE 插件（VS Code 等） | 超过课程项目范围 |
 | RAG / 向量数据库 | Memory 最小实现无需检索增强 |
 | LangGraph / CrewAI / AutoGen | A 类要求自行实现 Harness 内核 |
@@ -582,7 +581,7 @@ class StopDecision(BaseModel):
 | 字段 | 内容 |
 |------|------|
 | **目标** | 实现 SPEC §3.5.1 + §3.5.2，反馈引擎的基础数据结构 |
-| **涉及文件** | `src/feedback/models.py`, `src/tests/test_feedback_models.py` |
+| **涉及文件** | 计划阶段曾考虑拆分为独立 Feedback 模型与对应测试；实现阶段合并到 `src/harness/models.py` 与 `src/tests/test_models.py`，供 Harness、Feedback、Loop 共享同一组数据模型 |
 | **实现要点** | ① `FailureType` 枚举（7 种类型）② `AnalysisResult` 模型（含 location, error_message, assertion_expected/actual, raw_snippet）③ `Feedback` 模型（含 failure_type, summary, details, repair_prompt） |
 
 **测试（先红后绿）：**

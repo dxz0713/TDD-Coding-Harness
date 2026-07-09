@@ -340,8 +340,13 @@ def _render_page(
         input, select {{ width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }}
         label {{ display: block; margin-top: 1rem; font-weight: 600; }}
         .section {{ margin-top: 1rem; }}
-        button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }}
+        button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; min-width: 7rem; }}
         button:hover {{ background: #0055aa; }}
+        button:disabled {{ background: #777; cursor: not-allowed; }}
+        .run-row {{ display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem; }}
+        .run-status {{ color: #444; font-size: 0.95rem; min-height: 1.5rem; display: flex; align-items: center; gap: 0.5rem; }}
+        .spinner {{ display: inline-block; width: 1rem; height: 1rem; border: 2px solid #cfd8dc; border-top-color: #0066cc; border-radius: 50%; animation: spin 0.8s linear infinite; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
         a.download {{ display: inline-block; margin: 0.5rem 0 1rem; color: #0066cc; font-weight: 600; }}
         pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; }}
         .artifact {{ margin: 1rem 0; }}
@@ -353,7 +358,7 @@ def _render_page(
 <body>
     <h1>TDD Coding Harness</h1>
     <p class="info">Mock mode runs fixed offline demos. Real API mode accepts custom coding tasks and shows generated artifacts.</p>
-    <form method="post" action="/run">
+    <form id="run-form" method="post" action="/run">
         <label>Provider:
             <select id="provider" name="provider" onchange="updateMode()">
                 <option value="mock" {mock_selected}>Mock (offline)</option>
@@ -376,23 +381,52 @@ def _render_page(
             <label>Model:
                 <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
             </label>
-            <label>API Key (real API mode only, not stored):
-                <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
+            <label>API Key (real API mode only; kept in this browser tab, not stored on server):
+                <input id="api-key" name="api_key" type="password" placeholder="Enter API key for this request" autocomplete="off">
             </label>
         </div>
-        <br>
-        <button type="submit">Run</button>
+        <div class="run-row">
+            <button id="run-button" type="submit">Run</button>
+            <div id="run-status" class="run-status" aria-live="polite"></div>
+        </div>
     </form>
     {output_block}
     {artifacts_block}
     <script>
+        const apiKeyStorageKey = "tdd-harness-openai-api-key";
+
         function updateMode() {{
             const provider = document.getElementById("provider").value;
+            const apiInput = document.getElementById("api-key");
             document.getElementById("mock-section").style.display =
                 provider === "mock" ? "block" : "none";
             document.getElementById("real-section").style.display =
                 provider === "mock" ? "none" : "block";
+            if (provider === "mock") {{
+                apiInput.value = "";
+            }} else if (!apiInput.value) {{
+                apiInput.value = window.sessionStorage.getItem(apiKeyStorageKey) || "";
+            }}
         }}
+
+        document.getElementById("run-form").addEventListener("submit", function () {{
+            const provider = document.getElementById("provider").value;
+            const apiInput = document.getElementById("api-key");
+            const button = document.getElementById("run-button");
+            const status = document.getElementById("run-status");
+
+            if (provider === "openai" && apiInput.value.trim()) {{
+                window.sessionStorage.setItem(apiKeyStorageKey, apiInput.value.trim());
+            }}
+            if (provider === "mock") {{
+                apiInput.value = "";
+            }}
+
+            button.disabled = true;
+            button.textContent = "Running";
+            status.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Running... Real API tasks can take up to a minute.</span>';
+        }});
+
         updateMode();
     </script>
 </body>

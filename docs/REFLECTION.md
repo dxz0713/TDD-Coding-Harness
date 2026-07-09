@@ -72,7 +72,7 @@
 
 ## 总结
 
-本项目成功实现了一个教学导向的 TDD Coding Agent Harness，核心贡献（Feedback Engine）展示了如何将测试反馈闭环集成到 LLM agent 的工作流中。19 个 Task 按计划顺利完成，最终本地验证结果为 `pytest tests/ -v` 收集 214 个测试，其中 `213 passed, 1 skipped`，3 个 Demo 可运行。
+本项目成功实现了一个教学导向的 TDD Coding Agent Harness，核心贡献（Feedback Engine）展示了如何将测试反馈闭环集成到 LLM agent 的工作流中。PLAN 阶段拆分为 21 个任务；实现日志中 T1-T19 覆盖核心 Harness 与机制演示，T20/T21 并入最终文档、部署和验证收尾。最终本地验证结果为 `pytest tests/ -v` 收集 214 个测试，其中 `213 passed, 1 skipped`，3 个 Demo 可运行。
 
 真实 API 验证完成了两次端到端任务：使用 OpenAI-compatible endpoint 运行 Fibonacci 任务，最终 `SUCCESS - All tests passed`，共 9 次迭代，证据保存在 `workspace/fib/`；运行 GCD 任务，最终 `SUCCESS - All tests passed`，共 3 次迭代，证据保存在 `workspace/gcd/`。这说明 harness 不仅能在 MockProvider 下确定性测试核心机制，也能在真实 LLM 下完成可运行的 TDD 闭环。
 

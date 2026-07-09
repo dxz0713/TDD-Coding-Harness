@@ -821,7 +821,7 @@ FeedbackEngine (1) ── has ──▶ (1) FailureAnalyzer
 
 | 模块 | 不包含的理由 |
 |------|-------------|
-| GUI / Web UI | 项目定位为 CLI 工具，Out of Scope |
+| 完整产品级 GUI | 核心 Harness 定位为 CLI / 可编程内核；仅提供轻量 FastAPI WebUI 作为课程部署与演示入口，不做完整产品级 GUI |
 | IDE Plugin（VS Code 等） | 超过课程项目范围 |
 | Multi-Agent 编排 | A 类要求的是单 Agent Harness |
 | RAG / 向量数据库 | Memory 的最小实现无需检索增强 |

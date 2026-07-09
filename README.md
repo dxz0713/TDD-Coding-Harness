@@ -14,6 +14,12 @@
 3. 在 WebUI 中填写真实 API Key，运行 Real API 任务。
 4. 如需本地复现，clone GitHub 仓库后按本文命令运行。
 
+## 测试助教提示
+
+- 本地 Real API 测试可用 PowerShell 临时环境变量传入 Key：`$env:OPENAI_API_KEY = "your-api-key"`，不要写入源码、配置文件或日志。
+- WebUI Real API 测试时，API Key 仅用于本次后端调用，不写入仓库、不写入服务端文件、不在响应 HTML 中回显；浏览器端仅在当前标签页的 `sessionStorage` 中保留，关闭标签页后失效。
+- 如果测试助教不希望使用自己的 Key，可联系作者获取仅适用于 `https://njusehub.info/v1` 的限时、限额临时 API Key；该 Key 不随提交文档公开。
+
 ## 从源码本地运行
 
 ### 1. 获取源码
@@ -56,6 +62,8 @@ pytest tests/ -v
 ```text
 213 passed, 1 skipped
 ```
+
+其中唯一 skipped 测试是 `test_openai_provider_can_be_created_via_factory`。它只在本机未设置 `OPENAI_API_KEY` 时跳过，目的是让默认单元测试不依赖真实凭据；OpenAI-compatible Provider 的格式转换、工厂注册、Mock LLM 与 Harness 机制均由确定性测试覆盖，真实 API 行为通过本地 Real API 与 WebUI 验证。
 
 ## 本地 Mock 运行
 
@@ -213,7 +221,8 @@ deepseek-v4-pro
 
 说明：
 
-- API Key 仅用于本次请求，不写入仓库文件。
+- 点击 `Run` 后按钮会切换为 `Running` 并禁用，避免重复提交。
+- API Key 不写入仓库文件，也不在服务端持久化或回显到响应 HTML；WebUI 会在当前浏览器标签页的 `sessionStorage` 中保留，方便同一标签页连续运行 Real API 任务，关闭标签页后失效。
 - WebUI 会把本次运行放入服务器临时目录。
 - 请求结束前，WebUI 会收集临时目录中的产物，直接展示在页面的 `Artifacts` 区域，并提供 `artifacts.zip` 下载。
 - Vercel 临时目录不会长期保存，因此老师应在当次结果页查看或下载产物。
@@ -279,7 +288,7 @@ CLI / WebUI
 
 ## 安全说明
 
-- API Key 通过环境变量或 WebUI 表单传入。
+- API Key 通过环境变量或 WebUI 表单传入；WebUI 后端只在单次请求中使用 Key 调用模型，不写入服务端文件或响应 HTML；浏览器端仅在当前标签页会话内保留，不写入仓库或服务器持久存储。
 - `.env`、`.env.local`、`config.local.yaml`、`*.key` 已在 `.gitignore` 中排除。
 - 不要将真实 API Key 写入 README、日志、截图、配置或 commit history。
 - `workspace/fib/log.txt` 与 `workspace/gcd/log.txt` 已检查，不包含真实 API Key。
