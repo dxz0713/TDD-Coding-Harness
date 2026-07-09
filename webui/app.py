@@ -42,6 +42,20 @@ TEXT_ARTIFACT_EXTENSIONS = {
     ".yaml",
     ".yml",
 }
+DEMO_OPTIONS = {
+    "autonomous_repair": {
+        "label": "Autonomous repair TDD demo",
+        "script": "demo_autonomous_repair.py",
+    },
+    "feedback": {
+        "label": "Feedback engine demo",
+        "script": "demo_feedback.py",
+    },
+    "guardrail": {
+        "label": "Guardrail safety demo",
+        "script": "demo_guardrail.py",
+    },
+}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -52,15 +66,30 @@ async def index() -> HTMLResponse:
 
 @app.post("/run", response_class=HTMLResponse)
 async def run_task(
-    task: str = Form(...),
+    task: str = Form(""),
     provider: str = Form("mock"),
+    demo: str = Form("autonomous_repair"),
     base_url: str = Form("https://njusehub.info/v1"),
     model: str = Form("deepseek-v4-pro"),
     api_key: str = Form(""),
 ) -> HTMLResponse:
     """Execute a harness task and show the output."""
+    selected_demo = demo if demo in DEMO_OPTIONS else "autonomous_repair"
     artifacts: list[dict[str, object]] = []
     artifact_zip_b64 = ""
+
+    if provider != "mock" and not task.strip():
+        return HTMLResponse(
+            _render_page(
+                output="Real API mode requires a task description.",
+                task=task,
+                provider=provider,
+                demo=selected_demo,
+                base_url=base_url,
+                model=model,
+            )
+        )
+
     try:
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
@@ -74,16 +103,18 @@ async def run_task(
             )
 
             if provider == "mock":
+                demo_config = DEMO_OPTIONS[selected_demo]
                 command = [
                     sys.executable,
-                    str(PROJECT_ROOT / "examples" / "demo_autonomous_repair.py"),
+                    str(PROJECT_ROOT / "examples" / str(demo_config["script"])),
                 ]
                 output_prefix = (
-                    "Mock mode selected: running deterministic offline TDD "
-                    "repair demo.\n"
-                    f"Submitted task: {task}\n\n"
+                    "Mock mode selected: running a fixed deterministic offline "
+                    "demo.\n"
+                    f"Demo: {demo_config['label']}\n\n"
                 )
             else:
+                effective_task = task.strip()
                 if api_key.strip():
                     env["OPENAI_API_KEY"] = api_key.strip()
 
@@ -121,7 +152,7 @@ async def run_task(
                     "-m",
                     "harness.cli",
                     "run",
-                    task,
+                    effective_task,
                     "--provider",
                     provider,
                     "--model",
@@ -152,12 +183,14 @@ async def run_task(
     return HTMLResponse(
         _render_page(
             output=output,
-            task=task,
+            task="" if provider == "mock" else task,
             provider=provider,
+            demo=selected_demo,
             base_url=base_url,
             model=model,
             artifacts=artifacts,
             artifact_zip_b64=artifact_zip_b64,
+            show_artifacts=True,
         )
     )
 
@@ -226,10 +259,12 @@ def _render_page(
     output: str | None = None,
     task: str = "",
     provider: str = "mock",
+    demo: str = "autonomous_repair",
     base_url: str = "https://njusehub.info/v1",
     model: str = "deepseek-v4-pro",
     artifacts: list[dict[str, object]] | None = None,
     artifact_zip_b64: str = "",
+    show_artifacts: bool = False,
 ) -> str:
     """Render a small self-contained HTML page.
 
@@ -242,10 +277,15 @@ def _render_page(
     escaped_output = html.escape(output) if output else ""
     mock_selected = "selected" if provider == "mock" else ""
     openai_selected = "selected" if provider == "openai" else ""
+    demo_options = _render_demo_options(demo)
     output_block = (
         f"<h2>Output</h2><pre>{escaped_output}</pre>" if output else ""
     )
-    artifacts_block = _render_artifacts(artifacts or [], artifact_zip_b64)
+    artifacts_block = _render_artifacts(
+        artifacts or [],
+        artifact_zip_b64,
+        show_empty=show_artifacts,
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -259,6 +299,7 @@ def _render_page(
         textarea {{ width: 100%; min-height: 100px; padding: 0.5rem; font-family: monospace; }}
         input, select {{ width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }}
         label {{ display: block; margin-top: 1rem; font-weight: 600; }}
+        .section {{ margin-top: 1rem; }}
         button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }}
         button:hover {{ background: #0055aa; }}
         a.download {{ display: inline-block; margin: 0.5rem 0 1rem; color: #0066cc; font-weight: 600; }}
@@ -271,41 +312,76 @@ def _render_page(
 </head>
 <body>
     <h1>TDD Coding Harness</h1>
-    <p class="info">Enter a coding task below and let the harness generate, test, and fix code automatically.</p>
+    <p class="info">Mock mode runs fixed offline demos. Real API mode accepts custom coding tasks and shows generated artifacts.</p>
     <form method="post" action="/run">
-        <label>Task:
-        <textarea name="task" placeholder="e.g., 编写一个计算斐波那契数列的函数">{escaped_task}</textarea>
-        </label>
         <label>Provider:
-            <select name="provider">
+            <select id="provider" name="provider" onchange="updateMode()">
                 <option value="mock" {mock_selected}>Mock (offline)</option>
                 <option value="openai" {openai_selected}>OpenAI-compatible</option>
             </select>
         </label>
-        <label>Base URL:
-            <input name="base_url" type="url" value="{escaped_base_url}" placeholder="https://njusehub.info/v1">
-        </label>
-        <label>Model:
-            <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
-        </label>
-        <label>API Key (real API mode only, not stored):
-            <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
-        </label>
+        <div id="mock-section" class="section">
+            <label>Demo:
+                <select name="demo">{demo_options}</select>
+            </label>
+            <p class="info">Mock mode is deterministic and does not use a custom task or API key.</p>
+        </div>
+        <div id="real-section" class="section">
+            <label>Task:
+            <textarea name="task" placeholder="e.g., 编写一个计算斐波那契数列的函数">{escaped_task}</textarea>
+            </label>
+            <label>Base URL:
+                <input name="base_url" type="url" value="{escaped_base_url}" placeholder="https://njusehub.info/v1">
+            </label>
+            <label>Model:
+                <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
+            </label>
+            <label>API Key (real API mode only, not stored):
+                <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
+            </label>
+        </div>
         <br>
         <button type="submit">Run</button>
     </form>
     {output_block}
     {artifacts_block}
+    <script>
+        function updateMode() {{
+            const provider = document.getElementById("provider").value;
+            document.getElementById("mock-section").style.display =
+                provider === "mock" ? "block" : "none";
+            document.getElementById("real-section").style.display =
+                provider === "mock" ? "none" : "block";
+        }}
+        updateMode();
+    </script>
 </body>
 </html>"""
+
+
+def _render_demo_options(selected_demo: str) -> str:
+    """Render mock demo choices."""
+    options = []
+    for demo_id, demo_config in DEMO_OPTIONS.items():
+        selected = "selected" if demo_id == selected_demo else ""
+        value = html.escape(demo_id)
+        label = html.escape(str(demo_config["label"]))
+        options.append(f'<option value="{value}" {selected}>{label}</option>')
+    return "".join(options)
 
 
 def _render_artifacts(
     artifacts: list[dict[str, object]],
     artifact_zip_b64: str,
+    show_empty: bool = False,
 ) -> str:
     """Render collected generated files."""
     if not artifacts:
+        if show_empty:
+            return (
+                "<h2>Artifacts</h2>"
+                '<p class="info">No generated files were produced by this run.</p>'
+            )
         return ""
 
     download_link = (
