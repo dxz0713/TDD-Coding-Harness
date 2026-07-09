@@ -6,8 +6,13 @@ for mechanism demonstrations).
 
 from __future__ import annotations
 
+import os
+import re
+from contextlib import contextmanager
+from datetime import datetime
 import logging
 from pathlib import Path
+from typing import Iterator
 
 import typer
 
@@ -38,6 +43,7 @@ logging.basicConfig(
 )
 
 DEFAULT_CONFIG = "config.yaml"
+LOG_FORMAT = "  [%(levelname)s] %(message)s"
 
 # Built-in tool definitions exposed to the LLM.
 _BUILTIN_TOOL_DEFS: list[ToolDef] = [
@@ -67,6 +73,79 @@ def _build_workspace_dispatcher(workspace: Path) -> ToolDispatcher:
     dispatcher.register(WriteFile(allowed_root=allowed_root))
     dispatcher.register(RunShell())
     return dispatcher
+
+
+def _slugify_task(task: str) -> str:
+    """Create a readable filesystem name from a task description."""
+    lowered = task.lower()
+    if "斐波那契" in task or "fibonacci" in lowered or "fib" in lowered:
+        return "fib"
+    if any(term in task for term in ("最大公约数", "最大公因数", "最大公因子")):
+        return "gcd"
+    if "gcd" in lowered:
+        return "gcd"
+
+    words = re.findall(r"[a-zA-Z0-9]+", lowered)
+    slug = "-".join(words[:6])
+    return (slug[:48].strip("-_") or "run")
+
+
+def _create_run_directory(workspace: Path, task: str) -> Path:
+    """Create a unique per-run directory inside the configured workspace."""
+    workspace.mkdir(parents=True, exist_ok=True)
+    slug = _slugify_task(task)
+    candidate = workspace / slug
+    if not candidate.exists():
+        candidate.mkdir()
+        return candidate
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    for index in range(1, 100):
+        suffix = timestamp if index == 1 else f"{timestamp}-{index}"
+        candidate = workspace / f"{slug}-{suffix}"
+        if not candidate.exists():
+            candidate.mkdir()
+            return candidate
+
+    raise RuntimeError(f"Unable to create unique run directory in {workspace}")
+
+
+@contextmanager
+def _working_directory(path: Path) -> Iterator[None]:
+    """Temporarily execute relative file and shell operations from *path*."""
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+def _append_log(log_path: Path, message: str = "") -> None:
+    """Append a console line to the run log."""
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(message + "\n")
+
+
+def _echo_and_log(log_path: Path, message: str = "", err: bool = False) -> None:
+    """Echo a CLI line and persist it in log.txt."""
+    typer.echo(message, err=err)
+    _append_log(log_path, message)
+
+
+def _add_file_log_handler(log_path: Path) -> logging.Handler:
+    """Attach a file handler so harness iteration logs go into log.txt."""
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logging.getLogger().addHandler(handler)
+    return handler
+
+
+def _remove_file_log_handler(handler: logging.Handler) -> None:
+    """Detach and close a temporary file log handler."""
+    root_logger = logging.getLogger()
+    root_logger.removeHandler(handler)
+    handler.close()
 
 
 @app.callback(invoke_without_command=True)
@@ -127,24 +206,37 @@ def run(
 
     cfg = cfg.with_overrides(provider_name=provider, provider_model=model)
 
-    typer.echo(f"  Provider: {cfg.provider.name}")
-    typer.echo(f"  Model:    {cfg.provider.model}")
-    typer.echo(f"  Config:   {config}")
+    workspace_root = Path(cfg.loop.workspace).expanduser()
+    run_dir = _create_run_directory(workspace_root, task)
+    log_path = run_dir / "log.txt"
+    file_log_handler = _add_file_log_handler(log_path)
+    cfg.loop.workspace = str(run_dir)
+
+    config_path = Path(config)
+    memory_path = Path(cfg.memory.path)
+    if not memory_path.is_absolute():
+        memory_path = Path.cwd() / memory_path
+
+    _echo_and_log(log_path, f"  Provider: {cfg.provider.name}")
+    _echo_and_log(log_path, f"  Model:    {cfg.provider.model}")
+    _echo_and_log(log_path, f"  Config:   {config_path}")
+    _echo_and_log(log_path, f"  Workspace: {run_dir}")
 
     # ── 2. Create provider ─────────────────────────────────────────────
     try:
         provider_instance = ProviderFactory.create(cfg.provider)
     except Exception as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        _echo_and_log(log_path, f"Error: {exc}", err=True)
+        _remove_file_log_handler(file_log_handler)
         raise typer.Exit(code=1) from exc
 
     # ── 3. Build harness dependencies ──────────────────────────────────
-    dispatcher = _build_workspace_dispatcher(Path(cfg.loop.workspace))
+    dispatcher = _build_workspace_dispatcher(run_dir)
     guardrail = Guardrail(cfg.guardrail)
     context_manager = ContextManager()
     stop_decision = AutonomousStopDecision(guardrail, cfg.loop)
     feedback_engine = FeedbackEngine()
-    memory_store = MemoryStore(cfg.memory.path) if cfg.memory.enabled else None
+    memory_store = MemoryStore(str(memory_path)) if cfg.memory.enabled else None
 
     # ── 4. Run the TDD loop ────────────────────────────────────────────
     loop = HarnessLoop(
@@ -158,17 +250,23 @@ def run(
         config=cfg,
     )
 
-    result = loop.run(task, _BUILTIN_TOOL_DEFS)
+    try:
+        with _working_directory(run_dir):
+            result = loop.run(task, _BUILTIN_TOOL_DEFS)
+    finally:
+        _remove_file_log_handler(file_log_handler)
 
     # ── 5. Print result ────────────────────────────────────────────────
-    typer.echo()
-    typer.echo("=" * 60)
+    _echo_and_log(log_path)
+    _echo_and_log(log_path, "=" * 60)
     if result.success:
-        typer.echo("  SUCCESS - All tests passed")
+        _echo_and_log(log_path, "  SUCCESS - All tests passed")
     else:
-        typer.echo(f"  FAILURE - {result.error or 'Unknown error'}")
-    typer.echo(f"  Iterations: {result.iterations}")
-    typer.echo("=" * 60)
+        _echo_and_log(log_path, f"  FAILURE - {result.error or 'Unknown error'}")
+    _echo_and_log(log_path, f"  Iterations: {result.iterations}")
+    _echo_and_log(log_path, f"  Workspace: {run_dir}")
+    _echo_and_log(log_path, f"  Log:        {log_path}")
+    _echo_and_log(log_path, "=" * 60)
 
     if not result.success:
         raise typer.Exit(code=1)
