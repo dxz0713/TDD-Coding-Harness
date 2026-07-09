@@ -1,0 +1,20 @@
+PS E:\MyClass\2-2-summer\AI-Enabled_SoftwareEngineerBootcamp\homework> tdd-harness run "编写一个计算最大公因数的函数" --provider openai --model deepseek-v4-pro
+  Provider: openai
+  Model:    deepseek-v4-pro
+  Config:   config.yaml
+  [INFO] Iteration 0 - sending request to LLM...
+  [INFO] HTTP Request: POST https://njusehub.info/v1/chat/completions "HTTP/1.1 200 OK"
+  [INFO] Tool call: write_file({'path': 'gcd.py', 'content': 'def gcd(a: int, b: int) -> int:\n    """计算两个整数的最大公因数 (Greatest Common Divisor)"""\n    a, b = abs(a), abs(b)\n    while b != 0:\n        a, b = b, a % b\n    return a'})
+  [INFO]   -> exit_code=None, output=Written 161 bytes to E:\MyClass\2-2-summer\AI-Enabled_SoftwareEngineerBootcamp\homework\gcd.py
+  [INFO] Tool call: write_file({'path': 'test_gcd.py', 'content': 'import pytest\nfrom gcd import gcd\n\n\ndef test_gcd_basic():\n    assert gcd(12, 8) == 4\n    assert gcd(8, 12) == 4\n    assert gcd(100, 25) == 25\n\n\ndef test_gcd_coprime():\n    assert gcd(7, 13) == 1\n    assert gcd(17, 19) == 1\n\n\ndef test_gcd_same_number():\n    assert gcd(10, 10) == 10\n    assert gcd(7, 7) == 7\n\n\ndef test_gcd_with_zero():\n    assert gcd(0, 5) == 5\n    assert gcd(5, 0) == 5\n    assert gcd(0, 0) == 0\n\n\ndef test_gcd_with_one():\n    assert gcd(1, 5) == 1\n    assert gcd(5, 1) == 1\n\n\ndef test_gcd_negative():\n    assert gcd(-12, 8) == 4\n    assert gcd(12, -8) == 4\n    assert gcd(-12, -8) == 4\n\n\ndef test_gcd_large_numbers():\n    assert gcd(123456, 7890) == 6\n    assert gcd(10**9, 10**6) == 10**6'})
+  [INFO]   -> exit_code=None, output=Written 708 bytes to E:\MyClass\2-2-summer\AI-Enabled_SoftwareEngineerBootcamp\homework\test_gcd.py
+  [INFO] Iteration 2 - sending request to LLM...
+  [INFO] HTTP Request: POST https://njusehub.info/v1/chat/completions "HTTP/1.1 200 OK"
+  [INFO] Tool call: run_shell({'command': 'cd E:\\MyClass\\2-2-summer\\AI-Enabled_SoftwareEngineerBootcamp\\homework && pytest test_gcd.py -v'})
+  [INFO]   -> exit_code=0, output============================== test session starts =============================
+platform win32 -- Python 3.13.2, pytest-
+
+============================================================
+  SUCCESS - All tests passed
+  Iterations: 3
+============================================================

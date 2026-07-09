@@ -19,7 +19,6 @@ dependencies = [
     "keyring>=24.0",
     "fastapi>=0.100",
     "uvicorn>=0.20",
-    "jinja2>=3.0",
     "python-multipart>=0.0.9",
 ]
 
@@ -40,4 +39,4 @@ addopts = "--basetemp=.pytest_tmp"
 testpaths = ["src/tests"]
 
 [tool.vercel]
-entrypoint = "webui.app:app"
+entrypoint = "app:app"

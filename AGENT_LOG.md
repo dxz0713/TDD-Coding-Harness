@@ -222,7 +222,7 @@
 
 - **Date:** 2026-07-09 02:19 +08:00
 - **Agent:** Codex
-- **Files:** `.gitignore`, `Dockerfile`, `README.md`, `pyproject.toml`, `requirements.txt`, `src/harness/cli.py`, `src/harness/loop.py`, `tests/test_src_suite.py`, `webui/app.py`, `webui/requirements.txt`
+- **Files:** `.gitignore`, `Dockerfile`, `README.md`, `app.py`, `pyproject.toml`, `requirements.txt`, `src/harness/cli.py`, `src/harness/loop.py`, `tests/test_src_suite.py`, `webui/app.py`, `webui/requirements.txt`
 - **Decision:** 修复最终交付前的运行路径问题，而不改变核心 harness 架构。
 - **Reason:** `pytest tests/ -v` 需要在受限 Windows 环境稳定运行；CLI mock 路径存在无工具调用死循环；Vercel WebUI 500 需要定位；真实 API 和 Docker 需要交付前验证。
 - **Result:**
@@ -232,11 +232,13 @@
   - 新增 `tests/test_src_suite.py`，兼容顶层 `pytest tests/ -v`
   - pytest 临时目录固定为 `.pytest_tmp`，并加入 `.gitignore`
   - WebUI 本地健康检查通过：`GET / -> 200`，`POST /run -> 200`
-  - 补齐 Vercel/FastAPI 依赖：`fastapi`、`jinja2`、`uvicorn`、`python-multipart`
-  - 配置 Vercel 入口：`[tool.vercel] entrypoint = "webui.app:app"`
-  - 真实 API 调用通过：`SUCCESS - All tests passed`，`Iterations: 9`
-  - 真实 API 运行生成产物：`workspace/fib.py`、`workspace/test_fib.py`
-  - 真实 API 命令行输出已保存为证据日志：`workspace/log.txt`
+  - 补齐 Vercel/FastAPI 依赖：`fastapi`、`uvicorn`、`python-multipart`
+  - 配置 Vercel 入口：根目录 `app.py` + `[tool.vercel] entrypoint = "app:app"`
+  - 删除旧 `vercel.json` 的 `builds/routes` 配置，避免覆盖官方 Python runtime 入口
+  - WebUI 改为内联 HTML，避免模板文件打包缺失导致首页 500
+  - 真实 API Fibonacci 调用通过：`SUCCESS - All tests passed`，`Iterations: 9`
+  - 真实 API GCD 调用通过：`SUCCESS - All tests passed`，`Iterations: 3`
+  - 真实 API 证据目录：`workspace/fib/`、`workspace/gcd/`
   - Docker 验证通过：`docker build -t tdd-harness .` 成功，`docker run --rm tdd-harness --help` 成功
   - Dockerfile 补充复制 `config.yaml`，容器内默认 CLI 配置可解析
 - **Reflection:** 最终问题集中在运行环境边界和交付命令一致性，而不是核心机制缺失。将测试入口、临时目录、WebUI 依赖和 CLI 输出做成确定性行为后，项目更适合在评分环境和不同机器上复现。

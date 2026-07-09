@@ -101,20 +101,27 @@ pytest tests/ -v
 
 ### 真实 API 端到端验证
 
-真实 API 调用已完成一次 Fibonacci 任务：
+真实 API 调用已完成两次端到端任务：
 
 ```text
+Task: 编写一个计算斐波那契数列的函数
 SUCCESS - All tests passed
 Iterations: 9
-Generated artifacts: workspace/fib.py, workspace/test_fib.py
-Captured CLI log: workspace/log.txt
+Generated artifacts: workspace/fib/fib.py, workspace/fib/test_fib.py
+Captured CLI log: workspace/fib/log.txt
+
+Task: 编写一个计算最大公因数的函数
+SUCCESS - All tests passed
+Iterations: 3
+Generated artifacts: workspace/gcd/gcd.py, workspace/gcd/test_gcd.py
+Captured CLI log: workspace/gcd/log.txt
 ```
 
-`workspace/` 是本次真实 API 调用证据目录：
+`workspace/` 是真实 API 调用证据目录：
 
-- `workspace/fib.py`：LLM 生成并修复后的 Fibonacci 实现
-- `workspace/test_fib.py`：LLM 生成的 pytest 测试
-- `workspace/log.txt`：复制保存的命令行输出
+- `workspace/README.md`：证据目录说明
+- `workspace/fib/`：Fibonacci 任务的代码、测试和 CLI 输出
+- `workspace/gcd/`：GCD 任务的代码、测试和 CLI 输出
 
 ### Docker 验证
 
@@ -145,9 +152,12 @@ POST /run  -> 200
 
 Vercel 相关修复：
 
-- `pyproject.toml` 声明 `[tool.vercel] entrypoint = "webui.app:app"`
+- 根目录 `app.py` 作为 Vercel Python runtime 默认入口
+- `pyproject.toml` 声明 `[tool.vercel] entrypoint = "app:app"`
+- 删除旧 `vercel.json` 的 `builds/routes` 配置，避免覆盖官方 Python runtime 入口
 - `requirements.txt` / `pyproject.toml` 补齐 FastAPI 运行依赖
 - 补充 `python-multipart`，修复 FastAPI 表单路由导入时报错导致的 500
+- WebUI 改为内联 HTML，避免模板文件在 Vercel 函数包中缺失导致首页 500
 - WebUI 子进程显式传入项目根 `config.yaml`
 
 若线上旧部署仍返回 500，重新部署即可触发 GitHub 绑定的 Vercel 构建。
@@ -261,11 +271,18 @@ python examples/demo_autonomous_repair.py
 │   ├── tests/                    # 源码侧测试套件
 │   └── tools/                    # read_file / write_file / run_shell 工具
 ├── examples/                     # 机制演示脚本
+├── app.py                        # Vercel Python runtime 入口
 ├── webui/                        # FastAPI Web UI，用于 Vercel 部署演示
 ├── workspace/                    # 真实 API 调用证据目录
-│   ├── fib.py
-│   ├── test_fib.py
-│   └── log.txt
+│   ├── README.md
+│   ├── fib/
+│   │   ├── fib.py
+│   │   ├── test_fib.py
+│   │   └── log.txt
+│   └── gcd/
+│       ├── gcd.py
+│       ├── test_gcd.py
+│       └── log.txt
 ├── tests/                        # 顶层 pytest tests/ 兼容入口
 ├── docs/                         # SPEC、PLAN、过程文档
 ├── plan/                         # 课程要求与项目计划
@@ -300,7 +317,7 @@ python examples/demo_autonomous_repair.py
 - API Key 通过 `OPENAI_API_KEY` 环境变量或本地 `.env` 提供。
 - `.env`、`config.local.yaml` 被 `.gitignore` 排除。
 - 不要把真实 API Key 写入源码、文档或日志。
-- `workspace/log.txt` 已检查，不包含真实 API Key。
+- `workspace/fib/log.txt` 与 `workspace/gcd/log.txt` 已检查，不包含真实 API Key。
 - Guardrail 会在执行 shell 前拦截危险命令。
 
 API Key 配置方式：
