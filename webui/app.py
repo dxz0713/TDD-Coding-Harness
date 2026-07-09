@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from textwrap import dedent
 
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
@@ -31,6 +32,9 @@ async def index() -> HTMLResponse:
 async def run_task(
     task: str = Form(...),
     provider: str = Form("mock"),
+    base_url: str = Form("https://njusehub.info/v1"),
+    model: str = Form("deepseek-v4-pro"),
+    api_key: str = Form(""),
 ) -> HTMLResponse:
     """Execute a harness task and show the output."""
     try:
@@ -56,6 +60,38 @@ async def run_task(
                     f"Submitted task: {task}\n\n"
                 )
             else:
+                if api_key.strip():
+                    env["OPENAI_API_KEY"] = api_key.strip()
+
+                runtime_config = Path(tmp) / "config.webui.yaml"
+                runtime_config.write_text(
+                    dedent(
+                        f"""\
+                        version: 1
+
+                        provider:
+                          name: {provider}
+                          model: {model.strip() or "deepseek-v4-pro"}
+                          base_url: {base_url.strip() or "https://njusehub.info/v1"}
+                          temperature: 0.0
+                          max_tokens: 4096
+                          timeout: 60
+
+                        loop:
+                          max_iterations: 15
+                          workspace: {tmp}
+
+                        guardrail:
+                          enabled: true
+                          block_list: []
+
+                        memory:
+                          enabled: false
+                          path: output/memory.json
+                        """
+                    ),
+                    encoding="utf-8",
+                )
                 command = [
                     sys.executable,
                     "-m",
@@ -64,10 +100,17 @@ async def run_task(
                     task,
                     "--provider",
                     provider,
+                    "--model",
+                    model.strip() or "deepseek-v4-pro",
                     "--config",
-                    str(PROJECT_ROOT / "config.yaml"),
+                    str(runtime_config),
                 ]
-                output_prefix = ""
+                output_prefix = (
+                    "Real API mode selected.\n"
+                    f"Base URL: {base_url.strip() or 'https://njusehub.info/v1'}\n"
+                    f"Model: {model.strip() or 'deepseek-v4-pro'}\n"
+                    f"API key provided: {'yes' if api_key.strip() else 'no'}\n\n"
+                )
 
             result = subprocess.run(
                 command,
@@ -81,13 +124,23 @@ async def run_task(
     except Exception as exc:
         output = f"WebUI execution error: {exc}"
 
-    return HTMLResponse(_render_page(output=output, task=task, provider=provider))
+    return HTMLResponse(
+        _render_page(
+            output=output,
+            task=task,
+            provider=provider,
+            base_url=base_url,
+            model=model,
+        )
+    )
 
 
 def _render_page(
     output: str | None = None,
     task: str = "",
     provider: str = "mock",
+    base_url: str = "https://njusehub.info/v1",
+    model: str = "deepseek-v4-pro",
 ) -> str:
     """Render a small self-contained HTML page.
 
@@ -95,6 +148,8 @@ def _render_page(
     Python function packaging.
     """
     escaped_task = html.escape(task)
+    escaped_base_url = html.escape(base_url)
+    escaped_model = html.escape(model)
     escaped_output = html.escape(output) if output else ""
     mock_selected = "selected" if provider == "mock" else ""
     openai_selected = "selected" if provider == "openai" else ""
@@ -112,6 +167,8 @@ def _render_page(
         body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; background: #f5f5f5; }}
         h1 {{ color: #333; }}
         textarea {{ width: 100%; min-height: 100px; padding: 0.5rem; font-family: monospace; }}
+        input, select {{ width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }}
+        label {{ display: block; margin-top: 1rem; font-weight: 600; }}
         button {{ padding: 0.5rem 2rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }}
         button:hover {{ background: #0055aa; }}
         pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; overflow-x: auto; }}
@@ -122,15 +179,25 @@ def _render_page(
     <h1>TDD Coding Harness</h1>
     <p class="info">Enter a coding task below and let the harness generate, test, and fix code automatically.</p>
     <form method="post" action="/run">
+        <label>Task:
         <textarea name="task" placeholder="e.g., 编写一个计算斐波那契数列的函数">{escaped_task}</textarea>
-        <br><br>
+        </label>
         <label>Provider:
             <select name="provider">
                 <option value="mock" {mock_selected}>Mock (offline)</option>
                 <option value="openai" {openai_selected}>OpenAI-compatible</option>
             </select>
         </label>
-        <br><br>
+        <label>Base URL:
+            <input name="base_url" type="url" value="{escaped_base_url}" placeholder="https://njusehub.info/v1">
+        </label>
+        <label>Model:
+            <input name="model" type="text" value="{escaped_model}" placeholder="deepseek-v4-pro">
+        </label>
+        <label>API Key (real API mode only, not stored):
+            <input name="api_key" type="password" placeholder="Enter API key for this request only" autocomplete="off">
+        </label>
+        <br>
         <button type="submit">Run</button>
     </form>
     {output_block}
