@@ -10,6 +10,7 @@ import base64
 import html
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,7 @@ async def run_task(
     selected_demo = demo if demo in DEMO_OPTIONS else "autonomous_repair"
     artifacts: list[dict[str, object]] = []
     artifact_zip_b64 = ""
+    run_status = "idle"
 
     if provider != "mock" and not task.strip():
         return HTMLResponse(
@@ -96,6 +98,7 @@ async def run_task(
                 demo=selected_demo,
                 base_url=base_url,
                 model=model,
+                run_status="failure",
             )
         )
 
@@ -193,9 +196,12 @@ async def run_task(
                     DEMO_OPTIONS[selected_demo],
                 )
             output = output_prefix + result.stdout + "\n" + result.stderr + output_suffix
+            output = _redact_sensitive_output(output, api_key)
+            run_status = _classify_run_status(result.returncode, output)
             artifacts, artifact_zip_b64 = _collect_artifacts(Path(tmp))
     except Exception as exc:
-        output = f"WebUI execution error: {exc}"
+        output = _redact_sensitive_output(f"WebUI execution error: {exc}", api_key)
+        run_status = "failure"
 
     return HTMLResponse(
         _render_page(
@@ -208,6 +214,7 @@ async def run_task(
             artifacts=artifacts,
             artifact_zip_b64=artifact_zip_b64,
             show_artifacts=True,
+            run_status=run_status,
         )
     )
 
@@ -233,6 +240,57 @@ def _render_mock_summary(
         + "=" * 60
         + "\n"
     )
+
+
+def _classify_run_status(returncode: int, output: str) -> str:
+    """Classify the harness result separately from the HTTP request status."""
+    failure_markers = (
+        "FAILURE -",
+        "WebUI execution error",
+        "Traceback",
+        "LLMAuthError",
+        "LLMRateLimitError",
+        "LLMTimeoutError",
+        "AuthenticationError",
+        "Authentication failed",
+        "Invalid API key",
+        "invalid_api_key",
+        "Incorrect API key",
+        "Rate limited",
+        "Error code:",
+        "HTTP 401",
+        "401 Unauthorized",
+    )
+    if returncode != 0:
+        return "failure"
+    if any(marker in output for marker in failure_markers):
+        return "failure"
+    if "SUCCESS -" in output:
+        return "success"
+    if "Demo complete" in output and "[PASS]" in output:
+        return "success"
+    if output.strip():
+        return "success"
+    return "idle"
+
+
+def _redact_sensitive_output(output: str, api_key: str = "") -> str:
+    """Remove API key values from text before rendering or storing it."""
+    redacted = output
+    secret = api_key.strip()
+
+    if secret:
+        replacement = "[redacted-api-key]"
+        if len(secret) >= 8:
+            redacted = redacted.replace(secret, replacement)
+        else:
+            redacted = re.sub(
+                rf"(?<![A-Za-z0-9_-]){re.escape(secret)}(?![A-Za-z0-9_-])",
+                replacement,
+                redacted,
+            )
+
+    return re.sub(r"\bsk-[A-Za-z0-9_-]{6,}\b", "[redacted-api-key]", redacted)
 
 
 def _collect_artifacts(workspace: Path) -> tuple[list[dict[str, object]], str]:
@@ -305,6 +363,7 @@ def _render_page(
     artifacts: list[dict[str, object]] | None = None,
     artifact_zip_b64: str = "",
     show_artifacts: bool = False,
+    run_status: str = "idle",
 ) -> str:
     """Render a small self-contained HTML page.
 
@@ -315,6 +374,7 @@ def _render_page(
     escaped_base_url = html.escape(base_url)
     escaped_model = html.escape(model)
     escaped_output = html.escape(output) if output else ""
+    escaped_run_status = html.escape(run_status)
     mock_selected = "selected" if provider == "mock" else ""
     openai_selected = "selected" if provider == "openai" else ""
     demo_options = _render_demo_options(demo)
@@ -325,6 +385,10 @@ def _render_page(
         artifacts or [],
         artifact_zip_b64,
         show_empty=show_artifacts,
+    )
+    result_panel = (
+        f'<div id="result-panel" data-run-status="{escaped_run_status}">'
+        f"{output_block}{artifacts_block}</div>"
     )
 
     return f"""<!DOCTYPE html>
@@ -353,6 +417,7 @@ def _render_page(
         .artifact-name {{ font-weight: 700; }}
         .artifact-meta {{ color: #666; font-size: 0.85rem; }}
         .info {{ color: #666; font-size: 0.9rem; }}
+        .key-hint {{ color: #666; font-size: 0.85rem; margin: 0.35rem 0 0; font-weight: 400; }}
     </style>
 </head>
 <body>
@@ -383,6 +448,7 @@ def _render_page(
             </label>
             <label>API Key (real API mode only; kept in this browser tab, not stored on server):
                 <input id="api-key" name="api_key" type="password" placeholder="Enter API key for this request" autocomplete="off">
+                <p id="api-key-hint" class="key-hint"></p>
             </label>
         </div>
         <div class="run-row">
@@ -390,10 +456,95 @@ def _render_page(
             <div id="run-status" class="run-status" aria-live="polite"></div>
         </div>
     </form>
-    {output_block}
-    {artifacts_block}
+    {result_panel}
     <script>
         const apiKeyStorageKey = "tdd-harness-openai-api-key";
+        const formStateStorageKey = "tdd-harness-form-state";
+        const resultStorageKey = "tdd-harness-last-result-html";
+        const runStateStorageKey = "tdd-harness-run-state";
+
+        function readFormState() {{
+            try {{
+                return JSON.parse(window.sessionStorage.getItem(formStateStorageKey) || "{{}}");
+            }} catch {{
+                return {{}};
+            }}
+        }}
+
+        function saveFormState() {{
+            const form = document.getElementById("run-form");
+            const state = {{
+                provider: document.getElementById("provider").value,
+                demo: form.elements.demo.value,
+                task: form.elements.task.value,
+                base_url: form.elements.base_url.value,
+                model: form.elements.model.value,
+            }};
+            window.sessionStorage.setItem(formStateStorageKey, JSON.stringify(state));
+        }}
+
+        function restoreFormState() {{
+            const form = document.getElementById("run-form");
+            const state = readFormState();
+            if (state.provider) {{
+                document.getElementById("provider").value = state.provider;
+            }}
+            if (state.demo) {{
+                form.elements.demo.value = state.demo;
+            }}
+            if (state.task) {{
+                form.elements.task.value = state.task;
+            }}
+            if (state.base_url) {{
+                form.elements.base_url.value = state.base_url;
+            }}
+            if (state.model) {{
+                form.elements.model.value = state.model;
+            }}
+        }}
+
+        function restoreResultPanel() {{
+            const resultPanel = document.getElementById("result-panel");
+            const savedResult = window.sessionStorage.getItem(resultStorageKey);
+            if (savedResult) {{
+                resultPanel.innerHTML = savedResult;
+            }}
+        }}
+
+        function restoreRunState() {{
+            const status = document.getElementById("run-status");
+            const runState = window.sessionStorage.getItem(runStateStorageKey);
+            if (runState === "running") {{
+                window.sessionStorage.setItem(runStateStorageKey, "interrupted");
+                status.textContent = "Previous run was interrupted by page refresh. Click Run to start again.";
+            }} else if (runState === "failed") {{
+                status.textContent = "Previous run failed. Check output.";
+            }} else if (runState === "complete") {{
+                status.textContent = "Previous run complete.";
+            }}
+        }}
+
+        function escapeHtml(value) {{
+            return value
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }}
+
+        function updateApiKeyHint() {{
+            const provider = document.getElementById("provider").value;
+            const hint = document.getElementById("api-key-hint");
+            const hasStoredKey = Boolean(window.sessionStorage.getItem(apiKeyStorageKey));
+            if (provider === "mock") {{
+                hint.textContent = "";
+            }} else if (hasStoredKey) {{
+                hint.textContent = "API key is saved for this browser tab and will be reused for Real API runs.";
+            }} else {{
+                hint.textContent = "API key is sent only for Real API runs and is not stored on the server.";
+            }}
+        }}
 
         function updateMode() {{
             const provider = document.getElementById("provider").value;
@@ -407,27 +558,104 @@ def _render_page(
             }} else if (!apiInput.value) {{
                 apiInput.value = window.sessionStorage.getItem(apiKeyStorageKey) || "";
             }}
+            saveFormState();
+            updateApiKeyHint();
         }}
 
-        document.getElementById("run-form").addEventListener("submit", function () {{
+        document.getElementById("run-form").addEventListener("input", saveFormState);
+        document.getElementById("run-form").addEventListener("change", saveFormState);
+
+        document.getElementById("api-key").addEventListener("input", function () {{
+            const provider = document.getElementById("provider").value;
+            const apiInput = document.getElementById("api-key");
+            if (provider !== "openai") {{
+                return;
+            }}
+            if (apiInput.value.trim()) {{
+                window.sessionStorage.setItem(apiKeyStorageKey, apiInput.value.trim());
+            }} else {{
+                window.sessionStorage.removeItem(apiKeyStorageKey);
+            }}
+            updateApiKeyHint();
+        }});
+
+        document.getElementById("run-form").addEventListener("submit", async function (event) {{
+            event.preventDefault();
+
+            const form = event.currentTarget;
             const provider = document.getElementById("provider").value;
             const apiInput = document.getElementById("api-key");
             const button = document.getElementById("run-button");
             const status = document.getElementById("run-status");
+            const resultPanel = document.getElementById("result-panel");
+            const formData = new FormData(form);
 
-            if (provider === "openai" && apiInput.value.trim()) {{
-                window.sessionStorage.setItem(apiKeyStorageKey, apiInput.value.trim());
-            }}
             if (provider === "mock") {{
                 apiInput.value = "";
+                formData.set("api_key", "");
+            }} else {{
+                const storedKey = window.sessionStorage.getItem(apiKeyStorageKey) || "";
+                const effectiveKey = apiInput.value.trim() || storedKey;
+                if (effectiveKey) {{
+                    apiInput.value = effectiveKey;
+                    window.sessionStorage.setItem(apiKeyStorageKey, effectiveKey);
+                    formData.set("api_key", effectiveKey);
+                }}
             }}
+            saveFormState();
+            window.sessionStorage.setItem(runStateStorageKey, "running");
 
             button.disabled = true;
             button.textContent = "Running";
             status.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Running... Real API tasks can take up to a minute.</span>';
+
+            try {{
+                const response = await fetch(form.action, {{
+                    method: "POST",
+                    body: formData,
+                }});
+                const responseText = await response.text();
+                if (!response.ok) {{
+                    throw new Error(`HTTP ${{response.status}} ${{response.statusText}}`);
+                }}
+                const doc = new DOMParser().parseFromString(responseText, "text/html");
+                const nextResult = doc.getElementById("result-panel");
+                const nextRunStatus = nextResult ? nextResult.dataset.runStatus : "";
+                resultPanel.innerHTML = nextResult
+                    ? nextResult.innerHTML
+                    : `<h2>Output</h2><pre>${{escapeHtml(responseText)}}</pre>`;
+                if (nextRunStatus) {{
+                    resultPanel.dataset.runStatus = nextRunStatus;
+                }}
+                window.sessionStorage.setItem(resultStorageKey, resultPanel.innerHTML);
+                if (nextRunStatus === "success") {{
+                    window.sessionStorage.setItem(runStateStorageKey, "complete");
+                    status.textContent = "Complete.";
+                }} else {{
+                    window.sessionStorage.setItem(runStateStorageKey, "failed");
+                    status.textContent = "Run failed. Check output.";
+                }}
+            }} catch (error) {{
+                if (error.name === "AbortError") {{
+                    window.sessionStorage.setItem(runStateStorageKey, "interrupted");
+                    status.textContent = "Run interrupted by page navigation.";
+                }} else {{
+                    resultPanel.innerHTML = `<h2>Output</h2><pre>WebUI request failed: ${{escapeHtml(String(error))}}</pre>`;
+                    window.sessionStorage.setItem(resultStorageKey, resultPanel.innerHTML);
+                    window.sessionStorage.setItem(runStateStorageKey, "failed");
+                    status.textContent = "Run failed.";
+                }}
+            }} finally {{
+                button.disabled = false;
+                button.textContent = "Run";
+                updateMode();
+            }}
         }});
 
+        restoreFormState();
+        restoreResultPanel();
         updateMode();
+        restoreRunState();
     </script>
 </body>
 </html>"""

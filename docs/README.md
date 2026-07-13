@@ -23,7 +23,7 @@
 ## 测试助教提示
 
 - 本地 Real API 测试建议使用 PowerShell 临时环境变量传入 Key：`$env:OPENAI_API_KEY = "your-api-key"`，不要写入源码、配置文件或日志。
-- WebUI Real API 测试时，API Key 仅用于本次后端调用，不写入仓库、不写入服务端文件、不在响应 HTML 中回显；浏览器端仅在当前标签页的 `sessionStorage` 中保留，便于连续验证，关闭标签页后失效。
+- WebUI Real API 测试时，API Key 仅用于本次后端调用，不写入仓库、不写入服务端文件、不在响应 HTML 中回显；如果兼容 API 的错误文本包含 Key，WebUI 会在展示 Output 和写入前端缓存前脱敏。浏览器端仅在当前标签页的 `sessionStorage` 中保留并保持输入框可见，便于连续验证，关闭标签页后失效。
 - WebUI 点击 `Run` 后按钮会变为 `Running` 并禁用，Real API 任务完成后页面展示 `Output` 和 `Artifacts`。
 - 如果测试助教不希望使用自己的 Key，可联系作者获取仅适用于 `https://njusehub.info/v1` 的限时、限额的临时 API Key；该 Key 不随提交文档公开。
 
@@ -96,8 +96,11 @@ Real API 模式：
 - 填写 Task。
 - Base URL 填 `https://njusehub.info/v1`。
 - Model 填 `deepseek-v4-pro`。
-- 填写 API Key 后运行；同一浏览器标签页会话内会保留 Key，便于连续验证。
+- 填写 API Key 后运行；同一浏览器标签页会话内会保留 Key 并保持输入框可见，便于连续验证。
 - 点击 `Run` 后按钮会切换为 `Running` 并禁用，避免重复提交。
+- 运行结束后按钮旁状态会根据 Harness 结果显示 `Complete` 或 `Run failed`；API Key 错误、鉴权失败、测试失败等不会被标成完成。
+- WebUI 使用前端提交并只更新结果区，刷新页面会保留当前标签页中的表单状态和最近一次 Output / Artifacts，但不会重复运行上一次任务；只有再次点击 `Run` 才会发起新任务。
+- 如果在 `Running` 状态刷新页面，浏览器会中断当前前端请求；页面会提示 previous run was interrupted，并允许重新点击 `Run`。
 - 产物会在当次页面的 `Artifacts` 区域展示，并可下载 zip。
 
 ## 最终验证摘要

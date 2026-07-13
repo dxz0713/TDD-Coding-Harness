@@ -17,12 +17,14 @@
 ## 测试助教提示
 
 - 本地 Real API 测试可用 PowerShell 临时环境变量传入 Key：`$env:OPENAI_API_KEY = "your-api-key"`，不要写入源码、配置文件或日志。
-- WebUI Real API 测试时，API Key 仅用于本次后端调用，不写入仓库、不写入服务端文件、不在响应 HTML 中回显；浏览器端仅在当前标签页的 `sessionStorage` 中保留，关闭标签页后失效。
+- WebUI Real API 测试时，API Key 仅用于本次后端调用，不写入仓库、不写入服务端文件、不在响应 HTML 中回显；如果兼容 API 的错误文本包含 Key，WebUI 会在展示 Output 和写入前端缓存前脱敏。浏览器端仅在当前标签页的 `sessionStorage` 中保留并保持输入框可见，关闭标签页后失效。
 - 如果测试助教不希望使用自己的 Key，可联系作者获取仅适用于 `https://njusehub.info/v1` 的限时、限额临时 API Key；该 Key 不随提交文档公开。
 
 ## 从源码本地运行
 
 ### 1. 获取源码
+
+public仓库
 
 ```bash
 git clone https://github.com/dxz0713/TDD-Coding-Harness.git
@@ -222,7 +224,10 @@ deepseek-v4-pro
 说明：
 
 - 点击 `Run` 后按钮会切换为 `Running` 并禁用，避免重复提交。
-- API Key 不写入仓库文件，也不在服务端持久化或回显到响应 HTML；WebUI 会在当前浏览器标签页的 `sessionStorage` 中保留，方便同一标签页连续运行 Real API 任务，关闭标签页后失效。
+- 运行结束后按钮旁状态会根据 Harness 结果显示 `Complete` 或 `Run failed`；API Key 错误、鉴权失败、测试失败等不会被标成完成。
+- WebUI 使用前端提交并只更新结果区，刷新页面会保留当前标签页中的表单状态和最近一次 Output / Artifacts，但不会重复运行上一次任务；只有再次点击 `Run` 才会发起新任务。
+- 如果在 `Running` 状态刷新页面，浏览器会中断当前前端请求；页面会提示 previous run was interrupted，并允许重新点击 `Run`。
+- API Key 不写入仓库文件，也不在服务端持久化或回显到响应 HTML；如果兼容 API 的错误文本包含 Key，WebUI 会在展示 Output 和写入前端缓存前脱敏。WebUI 会在当前浏览器标签页的 `sessionStorage` 中保留并保持输入框可见，方便同一标签页连续运行 Real API 任务，关闭标签页后失效。
 - WebUI 会把本次运行放入服务器临时目录。
 - 请求结束前，WebUI 会收集临时目录中的产物，直接展示在页面的 `Artifacts` 区域，并提供 `artifacts.zip` 下载。
 - Vercel 临时目录不会长期保存，因此老师应在当次结果页查看或下载产物。
